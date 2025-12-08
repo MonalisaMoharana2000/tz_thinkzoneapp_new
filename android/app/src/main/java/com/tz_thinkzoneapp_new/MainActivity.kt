@@ -1,4 +1,4 @@
-package com.tz_thinkzoneapp_new
+package com.nrusingh.teacher_thinkzone1
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
