@@ -1229,6 +1229,7 @@ const AssessmentFlow = ({ navigation, user }) => {
   );
 
   // Student Selection Component
+
   const renderStudentSelection = () => {
     return (
       <View style={styles.fullContainer}>
@@ -1241,17 +1242,51 @@ const AssessmentFlow = ({ navigation, user }) => {
               <MaterialIcons name="arrow-back" size={25} color="#050505ff" />
             </TouchableOpacity>
             <Text style={[styles.title, { lineHeight: 40 }]}>
-              ଶିକ୍ଷାର୍ଥୀ ଚୟନ କରନ୍ତୁ{' '}
+              ଶିକ୍ଷାର୍ଥୀ ଚୟନ କରନ୍ତୁ
             </Text>
           </View>
         </View>
 
+        {/* Stats Card */}
+        <View style={styles.statsCard}>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <MaterialIcons name="class" size={24} color="#fe9c3b" />
+            <View style={styles.statTextContainer}>
+              <Text style={styles.statLabel}>ଶ୍ରେଣୀ</Text>
+              <Text style={styles.statValue}>Class {selectedClass}</Text>
+            </View>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <MaterialIcons name="people" size={24} color="#4CAF50" />
+            <View style={styles.statTextContainer}>
+              <Text style={styles.statLabel}>ମୋଟ ଶିକ୍ଷାର୍ଥୀ</Text>
+              <Text style={styles.statValue}>{students.length}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Add Student Button - Redesigned */}
         <TouchableOpacity
           onPress={() => setIsAddModalVisible(true)}
-          style={styles.addStudentButton}
+          style={styles.addStudentButtonNew}
         >
-          <MaterialIcons name="add" size={20} color="#c02222ff" />
-          <Text style={styles.addStudentText}>ଶିକ୍ଷାର୍ଥୀ ଯୋଡ଼ନ୍ତୁ</Text>
+          <View style={styles.addButtonIcon}>
+            <MaterialIcons name="person-add" size={22} color="white" />
+          </View>
+          <View style={styles.addButtonTextContainer}>
+            <Text style={styles.addButtonTitle}>ନୂତନ ଶିକ୍ଷାର୍ଥୀ ଯୋଡ଼ନ୍ତୁ</Text>
+            <Text style={styles.addButtonSubtitle}>
+              ରୋଲ୍ ନମ୍ବର ପ୍ରବେଶ କରନ୍ତୁ
+            </Text>
+          </View>
+          <MaterialIcons
+            name="chevron-right"
+            size={24}
+            color="#4a6fa5"
+            style={styles.addButtonArrow}
+          />
         </TouchableOpacity>
 
         <Modal
@@ -1261,43 +1296,57 @@ const AssessmentFlow = ({ navigation, user }) => {
           onRequestClose={() => !isSavingStudent && setIsAddModalVisible(false)}
         >
           <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>
-                ଶିକ୍ଷାର୍ଥୀ ର ରୋଲ୍ ନମ୍ୱର ଦିଅନ୍ତୁ
+            <View style={styles.modalContentNew}>
+              <View style={styles.modalHeader}>
+                <MaterialIcons name="person-add" size={28} color="#fe9c3b" />
+                <Text style={styles.modalTitleNew}>
+                  ନୂତନ ଶିକ୍ଷାର୍ଥୀ ଯୋଡ଼ନ୍ତୁ
+                </Text>
+              </View>
+
+              <Text style={styles.modalSubtitle}>
+                ଶ୍ରେଣୀ {selectedClass} ପାଇଁ ରୋଲ୍ ନମ୍ବର ଦିଅନ୍ତୁ
               </Text>
 
-              <TextInput
-                value={studentNumber}
-                onChangeText={setStudentNumber}
-                keyboardType="numeric"
-                placeholder="ଉଦାହରଣ: 25"
-                style={styles.modalInput}
-                editable={!isSavingStudent}
-              />
+              <View style={styles.inputContainer}>
+                <MaterialIcons name="badge" size={20} color="#666" />
+                <TextInput
+                  value={studentNumber}
+                  onChangeText={setStudentNumber}
+                  keyboardType="numeric"
+                  placeholder="ଉଦାହରଣ: 25"
+                  style={styles.modalInputNew}
+                  editable={!isSavingStudent}
+                  placeholderTextColor="#999"
+                />
+              </View>
 
               {isSavingStudent ? (
-                <ActivityIndicator size="small" color="#fe9c3b" />
+                <View style={styles.savingContainer}>
+                  <ActivityIndicator size="small" color="#fe9c3b" />
+                  <Text style={styles.savingText}>ସେଭ୍ ହେଉଛି...</Text>
+                </View>
               ) : (
-                <View style={styles.modalButtons}>
+                <View style={styles.modalButtonsNew}>
                   <TouchableOpacity
                     onPress={() => {
                       setIsAddModalVisible(false);
                       setStudentNumber('');
                     }}
-                    style={styles.modalCancelButton}
+                    style={styles.modalCancelButtonNew}
                   >
-                    <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                    <Text style={styles.modalCancelButtonTextNew}>ବାତିଲ୍</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     onPress={handleAddStudent}
                     disabled={!studentNumber.trim()}
                     style={[
-                      styles.modalOkButton,
+                      styles.modalOkButtonNew,
                       !studentNumber.trim() && styles.disabledButton,
                     ]}
                   >
-                    <Text style={styles.modalOkButtonText}>OK</Text>
+                    <Text style={styles.modalOkButtonTextNew}>ସେଭ୍ କରନ୍ତୁ</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -1307,76 +1356,137 @@ const AssessmentFlow = ({ navigation, user }) => {
 
         <View style={styles.contentContainer}>
           {isLoadingData || isSavingStudent ? (
-            <ActivityIndicator
-              size="large"
-              color="#4a6fa5"
-              style={styles.loader}
-            />
-          ) : (
-            <FlatList
-              data={students}
-              keyExtractor={item => item.id}
-              renderItem={({ item }) => {
-                const isCompleted = completedStudents.includes(
-                  item.rollNumber?.toString(),
-                );
-                const isSelected = selectedStudentRoll === item.rollNumber;
-
-                return (
-                  <TouchableOpacity
-                    style={[
-                      styles.studentItem,
-                      isSelected && styles.selectedStudentItem,
-                      isCompleted && styles.completedStudentItem,
-                    ]}
-                    onPress={() => {
-                      if (!isCompleted) {
-                        setSelectedStudentRoll(item.rollNumber);
-                        setSelectedStudentId(item.studentId);
-                        setSelectedStudent(item.studentName);
-                      }
-                    }}
-                    disabled={isCompleted}
-                  >
-                    <View style={styles.studentInfoContainer}>
-                      <Text style={styles.studentRoll}>
-                        Roll No: {item.rollNumber} - {item.studentName}
-                      </Text>
-                      {isCompleted && (
-                        <Text style={styles.completedBadge}>Completed</Text>
-                      )}
-                    </View>
-
-                    {isSelected && !isCompleted && (
-                      <MaterialIcons
-                        name="check-circle"
-                        size={24}
-                        color="#4CAF50"
-                      />
-                    )}
-
-                    {isCompleted && (
-                      <MaterialIcons
-                        name="check-circle"
-                        size={24}
-                        color="#757575"
-                      />
-                    )}
-                  </TouchableOpacity>
-                );
-              }}
-              ListEmptyComponent={
-                <Text style={styles.noStudentsText}>
-                  ଏହି ଶ୍ରେଣୀରେ କୌଣସି ଶିକ୍ଷାର୍ଥୀ ଉପଲବ୍ଧ ନାହାନ୍ତି ।
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#4a6fa5" />
+              <Text style={styles.loadingText}>
+                {isSavingStudent
+                  ? 'ଶିକ୍ଷାର୍ଥୀ ସେଭ୍ ହେଉଛି...'
+                  : 'ଶିକ୍ଷାର୍ଥୀ ଲୋଡ୍ ହେଉଛି...'}
+              </Text>
+            </View>
+          ) : students.length > 0 ? (
+            <View style={styles.studentListContainer}>
+              <View style={styles.listHeader}>
+                <Text style={styles.listTitle}>
+                  ଶିକ୍ଷାର୍ଥୀ ତାଲିକା ({students.length})
                 </Text>
-              }
-            />
+              </View>
+
+              <FlatList
+                data={students}
+                keyExtractor={item => item.id}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.listContent}
+                renderItem={({ item, index }) => {
+                  const isCompleted = completedStudents.includes(
+                    item.rollNumber?.toString(),
+                  );
+                  const isSelected = selectedStudentRoll === item.rollNumber;
+
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.studentCard,
+                        isSelected && styles.selectedStudentCard,
+                        isCompleted && styles.completedStudentCard,
+                      ]}
+                      onPress={() => {
+                        if (!isCompleted) {
+                          setSelectedStudentRoll(item.rollNumber);
+                          setSelectedStudentId(item.studentId);
+                          setSelectedStudent(item.studentName);
+                        }
+                      }}
+                      disabled={isCompleted}
+                      activeOpacity={isCompleted ? 1 : 0.7}
+                    >
+                      <View style={styles.studentCardLeft}>
+                        <View
+                          style={[
+                            styles.rollNumberBadge,
+                            isSelected && styles.selectedRollBadge,
+                            isCompleted && styles.completedRollBadge,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.rollNumberText,
+                              (isSelected || isCompleted) &&
+                                styles.rollNumberTextSelected,
+                            ]}
+                          >
+                            {item.rollNumber}
+                          </Text>
+                        </View>
+                        <View style={styles.studentInfo}>
+                          <Text style={styles.studentName}>
+                            {item.studentName}
+                          </Text>
+                          <Text style={styles.studentId}>
+                            ID: {item.studentId || 'N/A'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.studentCardRight}>
+                        {isCompleted ? (
+                          <View style={styles.completedStatus}>
+                            <MaterialIcons
+                              name="check-circle"
+                              size={20}
+                              color="#4CAF50"
+                            />
+                            <Text style={styles.completedText}>ସମ୍ପୂର୍ଣ୍ଣ</Text>
+                          </View>
+                        ) : isSelected ? (
+                          <View style={styles.selectedStatus}>
+                            <MaterialIcons
+                              name="radio-button-checked"
+                              size={20}
+                              color="#fe9c3b"
+                            />
+                            <Text style={styles.selectedText}>ଚୟନିତ</Text>
+                          </View>
+                        ) : (
+                          <MaterialIcons
+                            name="radio-button-unchecked"
+                            size={20}
+                            color="#ccc"
+                          />
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconCircle}>
+                <MaterialIcons name="person-off" size={60} color="#ccc" />
+              </View>
+              <Text style={styles.emptyStateTitle}>
+                କୌଣସି ଶିକ୍ଷାର୍ଥୀ ନାହାନ୍ତି
+              </Text>
+              <Text style={styles.emptyStateSubtitle}>
+                ଏହି ଶ୍ରେଣୀରେ କୌଣସି ଶିକ୍ଷାର୍ଥୀ ଉପଲବ୍ଧ ନାହାନ୍ତି।
+              </Text>
+              <TouchableOpacity
+                onPress={() => setIsAddModalVisible(true)}
+                style={styles.emptyStateButton}
+              >
+                <MaterialIcons name="add" size={20} color="white" />
+                <Text style={styles.emptyStateButtonText}>
+                  ପ୍ରଥମ ଶିକ୍ଷାର୍ଥୀ ଯୋଡ଼ନ୍ତୁ
+                </Text>
+              </TouchableOpacity>
+            </View>
           )}
 
           <View style={styles.footer}>
             <TouchableOpacity
               style={[
-                styles.assessmentButton,
+                styles.assessmentButtonNew,
                 (!selectedStudentRoll || isLoadingData) &&
                   styles.disabledButton,
               ]}
@@ -1386,11 +1496,24 @@ const AssessmentFlow = ({ navigation, user }) => {
               }}
               disabled={!selectedStudentRoll || isLoadingData}
             >
-              <Text style={styles.assessmentButtonText}>
-                {selectedClass
-                  ? `ମୂଲ୍ୟାୟନ ଆରମ୍ଭ କରନ୍ତୁ`
-                  : 'ମୂଲ୍ୟାୟନ ଆରମ୍ଭ କରନ୍ତୁ'}
-              </Text>
+              <View style={styles.assessmentButtonContent}>
+                <MaterialIcons
+                  name="mic"
+                  size={24}
+                  color="white"
+                  style={styles.assessmentButtonIcon}
+                />
+                <View style={styles.assessmentButtonTextContainer}>
+                  <Text style={styles.assessmentButtonMainText}>
+                    ମୂଲ୍ୟାୟନ ଆରମ୍ଭ କରନ୍ତୁ
+                  </Text>
+                  <Text style={styles.assessmentButtonSubText}>
+                    {selectedStudentRoll
+                      ? `${selectedStudent} (ରୋଲ୍: ${selectedStudentRoll})`
+                      : 'ଏକ ଶିକ୍ଷାର୍ଥୀ ଚୟନ କରନ୍ତୁ'}
+                  </Text>
+                </View>
+              </View>
               <MaterialIcons
                 name="arrow-forward"
                 size={20}
@@ -1406,6 +1529,37 @@ const AssessmentFlow = ({ navigation, user }) => {
 
   // Voice Assessment Component
   const renderVoiceAssessment = () => {
+    // Group words into sentences for paragraph display
+    const sentences = [
+      'ବଣରେ ବିଲୁଆଟିଏ ଥିଲା ।',
+      'ସେ ଭୋକିଲା ଥିଲା ।',
+      'ନଦୀକୂଳରେ ଗୋଟିଏ ବତକକୁ ଦେଖିଲା ।',
+      'ବତକ ପୋକ ଖାଉଥିଲା ।',
+      'ବିଲୁଆ ବତକ ଆଡକୁ ଗଲା ।',
+      'ବତକ ବିଲୁଆକୁ ଦେଖି ଧାଇଁଲା ।',
+      'ବିଲୁଆ ତା ପଛରେ ଧାଇଁଲା ।',
+      'ବତକ ପାଣିକୁ ଡେଇଁ ପଡିଲା ।',
+      'ବତକ ପାଣିରେ ପହଁରି ପଳେଇଲା ।',
+    ];
+
+    // Get word indices for each sentence
+    const getSentenceWords = sentenceIndex => {
+      let wordCount = 0;
+      for (let i = 0; i < sentenceIndex; i++) {
+        wordCount += sentences[i]
+          .split(' ')
+          .filter(w => w.trim() !== '' && w !== '।').length;
+      }
+      const currentSentenceWords = sentences[sentenceIndex]
+        .split(' ')
+        .filter(w => w.trim() !== '' && w !== '।');
+      return {
+        startIndex: wordCount,
+        endIndex: wordCount + currentSentenceWords.length - 1,
+        words: currentSentenceWords,
+      };
+    };
+
     return (
       <View style={styles.fullContainer}>
         <View style={styles.header}>
@@ -1445,21 +1599,46 @@ const AssessmentFlow = ({ navigation, user }) => {
         <ScrollView
           style={styles.scrollContainer}
           contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={true}
+          showsVerticalScrollIndicator={false}
         >
           <View style={styles.assessmentContent}>
             {/* Instructions Card */}
             <View style={styles.instructionCard}>
               <View style={styles.instructionHeader}>
                 <MaterialIcons name="info" size={20} color="#0984e3" />
-                <Text style={styles.instructionTitle}>Instructions</Text>
+                <Text style={styles.instructionTitle}>ନିର୍ଦ୍ଦେଶାବଳୀ</Text>
               </View>
               <Text style={styles.instructionText}>
-                1. Click "Start Recording" to begin{'\n'}
-                2. Read all the words aloud clearly{'\n'}
-                3. You have 30 seconds to complete{'\n'}
-                4. Click "Save to Server" to upload recording
+                1. "ରେକର୍ଡିଂ ଆରମ୍ଭ କରନ୍ତୁ" ବଟନ୍ ଦବାନ୍ତୁ{'\n'}
+                2. ସମସ୍ତ ଶବ୍ଦ ସ୍ପଷ୍ଟ ଭାବରେ ପଢନ୍ତୁ{'\n'}
+                3. ଆପଣଙ୍କ ପାଖରେ ୩୦ ସେକେଣ୍ଡ ସମୟ ଅଛି{'\n'}
+                4. ସର୍ଭରକୁ ସେଭ୍ କରିବା ପାଇଁ "ସେଭ୍ କରନ୍ତୁ" ବଟନ୍ ଦବାନ୍ତୁ
               </Text>
+            </View>
+
+            {/* Student Info Card */}
+            <View style={styles.studentInfoCard}>
+              <View style={styles.studentInfoRow}>
+                <MaterialIcons name="person" size={20} color="#4a6fa5" />
+                <Text style={styles.studentInfoText}>
+                  <Text style={styles.studentInfoLabel}>ଶିକ୍ଷାର୍ଥୀ: </Text>
+                  {selectedStudent}
+                </Text>
+              </View>
+              <View style={styles.studentInfoRow}>
+                <MaterialIcons name="school" size={20} color="#fe9c3b" />
+                <Text style={styles.studentInfoText}>
+                  <Text style={styles.studentInfoLabel}>ରୋଲ୍: </Text>
+                  {selectedStudentRoll}
+                </Text>
+              </View>
+              <View style={styles.studentInfoRow}>
+                <MaterialIcons name="class" size={20} color="#4CAF50" />
+                <Text style={styles.studentInfoText}>
+                  <Text style={styles.studentInfoLabel}>ଶ୍ରେଣୀ: </Text>
+                  {selectedClass}
+                </Text>
+              </View>
             </View>
 
             {/* Timer Display */}
@@ -1467,63 +1646,117 @@ const AssessmentFlow = ({ navigation, user }) => {
               <View
                 style={[
                   styles.timerCircle,
-                  { borderColor: recording ? '#FF6B6B' : '#4ECDC4' },
+                  recording && styles.timerCircleRecording,
+                  !recording && filePath && styles.timerCircleCompleted,
                 ]}
               >
                 <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
                 <Text style={styles.timerLabel}>
-                  {recording ? 'Recording...' : 'Ready'}
+                  {recording
+                    ? 'ରେକର୍ଡିଂ ହେଉଛି...'
+                    : filePath
+                    ? 'ରେକର୍ଡିଂ ସମାପ୍ତ'
+                    : 'ପ୍ରସ୍ତୁତ'}
                 </Text>
               </View>
 
               {/* Recording Status */}
               {recording && (
                 <View style={styles.recordingStatus}>
-                  <View style={styles.recordingDot} />
-                  <Text style={styles.recordingText}>LIVE</Text>
+                  <View style={styles.recordingPulse} />
+                  <Text style={styles.recordingText}>ଲାଇଭ୍ ରେକର୍ଡିଂ</Text>
                 </View>
               )}
             </View>
 
-            {/* Words Grid in Boxes */}
-            <View style={styles.wordsSection}>
-              <Text style={styles.sectionTitle}>Read these words aloud:</Text>
-              <View style={styles.wordsGrid}>
-                {grade1Data.words.map((word, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.wordBox,
-                      currentWordIndex === index && styles.activeWordBox,
-                      wordStatus[index] === 'correct' && styles.correctWordBox,
-                      wordStatus[index] === 'wrong' && styles.wrongWordBox,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.wordText,
-                        currentWordIndex === index && styles.activeWordText,
-                      ]}
-                    >
-                      {word.replace(/[।,.]/g, '')}
-                    </Text>
-                    {wordStatus[index] && (
-                      <View style={styles.statusIndicator}>
-                        <MaterialIcons
-                          name={
-                            wordStatus[index] === 'correct' ? 'check' : 'close'
-                          }
-                          size={12}
-                          color={
-                            wordStatus[index] === 'correct'
-                              ? '#00b894'
-                              : '#e17055'
-                          }
-                        />
+            {/* Reading Passage Card */}
+            <View style={styles.passageCard}>
+              <View style={styles.passageHeader}>
+                <MaterialIcons name="menu-book" size={24} color="#4a6fa5" />
+                <Text style={styles.passageTitle}>
+                  ପଠନ ବିଷୟ: ବିଲୁଆ ଓ ବତକର କାହାଣୀ
+                </Text>
+              </View>
+
+              <View style={styles.passageContent}>
+                <Text style={styles.passageSubtitle}>
+                  ନିମ୍ନଲିଖିତ ବାକ୍ୟଗୁଡିକୁ ଉଚ୍ଚ ସ୍ୱରରେ ପଢନ୍ତୁ:
+                </Text>
+
+                <View style={styles.passageTextContainer}>
+                  {sentences.map((sentence, sentenceIndex) => {
+                    const sentenceData = getSentenceWords(sentenceIndex);
+                    const words = sentence.split(' ');
+
+                    return (
+                      <View
+                        key={sentenceIndex}
+                        style={styles.sentenceContainer}
+                      >
+                        <Text style={styles.sentenceNumber}>
+                          {sentenceIndex + 1}.
+                        </Text>
+                        <View style={styles.sentenceTextContainer}>
+                          {words.map((word, wordIndexInSentence) => {
+                            const globalWordIndex =
+                              sentenceData.startIndex + wordIndexInSentence;
+                            const isCorrect =
+                              wordStatus[globalWordIndex] === 'correct';
+                            const isWrong =
+                              wordStatus[globalWordIndex] === 'wrong';
+                            const isCurrent =
+                              currentWordIndex === globalWordIndex;
+
+                            return (
+                              <Text
+                                key={globalWordIndex}
+                                style={[
+                                  styles.wordText,
+                                  isCurrent && styles.currentWordText,
+                                  isCorrect && styles.correctWordText,
+                                  isWrong && styles.wrongWordText,
+                                ]}
+                              >
+                                {word}
+                              </Text>
+                            );
+                          })}
+                        </View>
+
+                        {/* Sentence Status Indicator */}
+                        {sentenceData.words.some(
+                          (_, idx) => wordStatus[sentenceData.startIndex + idx],
+                        ) && (
+                          <View style={styles.sentenceStatus}>
+                            <MaterialIcons
+                              name={
+                                sentenceData.words.every(
+                                  (_, idx) =>
+                                    wordStatus[
+                                      sentenceData.startIndex + idx
+                                    ] === 'correct',
+                                )
+                                  ? 'check-circle'
+                                  : 'error'
+                              }
+                              size={16}
+                              color={
+                                sentenceData.words.every(
+                                  (_, idx) =>
+                                    wordStatus[
+                                      sentenceData.startIndex + idx
+                                    ] === 'correct',
+                                )
+                                  ? '#4CAF50'
+                                  : '#FF6B6B'
+                              }
+                            />
+                          </View>
+                        )}
                       </View>
-                    )}
-                  </View>
-                ))}
+                    );
+                  })}
+                </View>
               </View>
             </View>
 
@@ -1547,10 +1780,14 @@ const AssessmentFlow = ({ navigation, user }) => {
                   />
                   <View style={styles.buttonTextContainer}>
                     <Text style={styles.buttonMainText}>
-                      {recording ? 'Stop Recording' : 'Start Recording'}
+                      {recording
+                        ? 'ରେକର୍ଡିଂ ବନ୍ଦ କରନ୍ତୁ'
+                        : 'ରେକର୍ଡିଂ ଆରମ୍ଭ କରନ୍ତୁ'}
                     </Text>
                     <Text style={styles.buttonSubText}>
-                      {recording ? `${timeLeft}s remaining` : '30 seconds max'}
+                      {recording
+                        ? `${timeLeft} ସେକେଣ୍ଡ ବାକି ଅଛି`
+                        : '୩୦ ସେକେଣ୍ଡରେ ସମାପ୍ତ କରନ୍ତୁ'}
                     </Text>
                   </View>
                 </View>
@@ -1563,7 +1800,43 @@ const AssessmentFlow = ({ navigation, user }) => {
                 )}
               </TouchableOpacity>
 
-              {/* Save Button - Only enabled when recording is complete */}
+              {/* Playback Controls - Only show if recording exists */}
+              {filePath && !recording && (
+                <View style={styles.playbackSection}>
+                  <Text style={styles.playbackTitle}>
+                    ରେକର୍ଡିଂ ପରୀକ୍ଷା କରନ୍ତୁ:
+                  </Text>
+                  <View style={styles.playbackControls}>
+                    <TouchableOpacity
+                      onPress={playAudio}
+                      style={[styles.secondaryButton, styles.playButton]}
+                      disabled={playing || isLoading}
+                    >
+                      <MaterialIcons
+                        name={playing ? 'pause' : 'play-arrow'}
+                        size={20}
+                        color="white"
+                      />
+                      <Text style={styles.secondaryButtonText}>
+                        {playing ? 'ବିରତ କରନ୍ତୁ' : 'ଶୁଣନ୍ତୁ'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={stopAudio}
+                      style={[styles.secondaryButton, styles.stopButton]}
+                      disabled={isLoading}
+                    >
+                      <MaterialIcons name="stop" size={20} color="white" />
+                      <Text style={styles.secondaryButtonText}>
+                        ବନ୍ଦ କରନ୍ତୁ
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {/* Save Button */}
               <TouchableOpacity
                 onPress={handleManualSave}
                 style={[
@@ -1578,43 +1851,14 @@ const AssessmentFlow = ({ navigation, user }) => {
                   <MaterialIcons name="cloud-upload" size={24} color="white" />
                   <View style={styles.buttonTextContainer}>
                     <Text style={styles.buttonMainText}>
-                      {isLoading ? 'Saving...' : 'Save to Server'}
+                      {isLoading ? 'ସେଭ୍ ହେଉଛି...' : 'ସେଭ୍ କରନ୍ତୁ'}
                     </Text>
                     <Text style={styles.buttonSubText}>
-                      Upload recording to cloud
+                      ସର୍ଭରକୁ ଅପଲୋଡ୍ କରନ୍ତୁ
                     </Text>
                   </View>
                 </View>
               </TouchableOpacity>
-
-              {/* Playback Controls - Only show if recording exists */}
-              {filePath && !recording && (
-                <View style={styles.playbackControls}>
-                  <TouchableOpacity
-                    onPress={playAudio}
-                    style={[styles.secondaryButton, styles.playButton]}
-                    disabled={playing || isLoading}
-                  >
-                    <MaterialIcons
-                      name={playing ? 'pause' : 'play-arrow'}
-                      size={20}
-                      color="white"
-                    />
-                    <Text style={styles.secondaryButtonText}>
-                      {playing ? 'Pause' : 'Playback'}
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={stopAudio}
-                    style={[styles.secondaryButton, styles.stopButton]}
-                    disabled={isLoading}
-                  >
-                    <MaterialIcons name="stop" size={20} color="white" />
-                    <Text style={styles.secondaryButtonText}>Stop</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
 
               {/* Upload Status */}
               {isLoading && (
@@ -1622,8 +1866,8 @@ const AssessmentFlow = ({ navigation, user }) => {
                   <ActivityIndicator size="small" color="#4ECDC4" />
                   <Text style={styles.uploadStatusText}>
                     {uploadStatus === 'uploading'
-                      ? 'Uploading recording...'
-                      : 'Processing...'}
+                      ? 'ଅପଲୋଡ୍ ହେଉଛି...'
+                      : 'ପ୍ରକ୍ରିୟା କରୁଛି...'}
                   </Text>
                 </View>
               )}
@@ -1636,7 +1880,7 @@ const AssessmentFlow = ({ navigation, user }) => {
                     color="#00b894"
                   />
                   <Text style={styles.successText}>
-                    Recording uploaded successfully!
+                    ସଫଳତାର ସହ ରେକର୍ଡିଂ ସେଭ୍ ହୋଇଛି!
                   </Text>
                 </View>
               )}
@@ -1646,12 +1890,12 @@ const AssessmentFlow = ({ navigation, user }) => {
                 <TouchableOpacity
                   onPress={() => {
                     Alert.alert(
-                      'Go Back',
-                      'Are you sure you want to go back? Unsaved recording will be lost.',
+                      'ପଛକୁ ଯାଆନ୍ତୁ',
+                      'ଆପଣ ନିଶ୍ଚିତ କି ପଛକୁ ଯିବେ? ସେଭ୍ ହୋଇନଥିବା ରେକର୍ଡିଂ ନଷ୍ଟ ହେବ।',
                       [
-                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'ବାତିଲ୍', style: 'cancel' },
                         {
-                          text: 'YES',
+                          text: 'ହଁ',
                           onPress: () => setCurrentSection('studentSelection'),
                         },
                       ],
@@ -1659,15 +1903,13 @@ const AssessmentFlow = ({ navigation, user }) => {
                   }}
                   style={[styles.navButton, styles.cancelNavButton]}
                 >
-                  <Text style={styles.cancelNavButtonText}>
-                    Back to Students
-                  </Text>
+                  <MaterialIcons name="arrow-back" size={18} color="#636e72" />
+                  <Text style={styles.cancelNavButtonText}>ପଛକୁ ଯାଆନ୍ତୁ</Text>
                 </TouchableOpacity>
 
                 {uploadStatus === 'success' && (
                   <TouchableOpacity
                     onPress={() => {
-                      // Mark student as completed
                       setCompletedStudents(prev => [
                         ...prev,
                         selectedStudentRoll.toString(),
@@ -1676,41 +1918,19 @@ const AssessmentFlow = ({ navigation, user }) => {
                     }}
                     style={[styles.navButton, styles.completeNavButton]}
                   >
+                    <MaterialIcons name="check" size={18} color="white" />
                     <Text style={styles.completeNavButtonText}>
-                      Complete Assessment
+                      ସମାପ୍ତ କରନ୍ତୁ
                     </Text>
                   </TouchableOpacity>
                 )}
               </View>
-            </View>
-
-            {/* Progress Indicator */}
-            <View style={styles.progressContainer}>
-              <View style={styles.progressBar}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    {
-                      width: `${
-                        (Object.keys(wordStatus).length /
-                          grade1Data.words.length) *
-                        100
-                      }%`,
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={styles.progressText}>
-                Words analyzed: {Object.keys(wordStatus).length}/
-                {grade1Data.words.length}
-              </Text>
             </View>
           </View>
         </ScrollView>
       </View>
     );
   };
-
   const handleManualSave = async () => {
     if (!filePath) {
       Alert.alert('No Recording', 'Please record audio first before saving.');
@@ -1806,6 +2026,386 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 4,
   },
+  statsCard: {
+    backgroundColor: 'white',
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 10,
+    paddingVertical: 15,
+    borderRadius: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  statItem: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  statTextContainer: {
+    alignItems: 'center',
+    marginTop: 5,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  statValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#333',
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  statDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: '#eee',
+  },
+  addStudentButtonNew: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    marginHorizontal: 20,
+    marginVertical: 10,
+    padding: 15,
+    borderRadius: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+  },
+  addButtonIcon: {
+    backgroundColor: '#4a6fa5',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addButtonTextContainer: {
+    flex: 1,
+    marginLeft: 15,
+  },
+  addButtonTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  addButtonSubtitle: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  addButtonArrow: {
+    marginLeft: 10,
+  },
+  modalContentNew: {
+    backgroundColor: '#fff',
+    width: '90%',
+    borderRadius: 20,
+    padding: 25,
+    alignItems: 'center',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  modalTitleNew: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginLeft: 10,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    width: '100%',
+    marginBottom: 25,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  modalInputNew: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+    marginLeft: 10,
+    padding: 0,
+  },
+  savingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 15,
+  },
+  savingText: {
+    marginLeft: 10,
+    color: '#666',
+    fontSize: 14,
+  },
+  modalButtonsNew: {
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+  },
+  modalCancelButtonNew: {
+    flex: 1,
+    backgroundColor: '#f0f0f0',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalCancelButtonTextNew: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalOkButtonNew: {
+    flex: 1,
+    backgroundColor: '#fe9c3b',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalOkButtonTextNew: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 15,
+    fontSize: 16,
+    color: '#666',
+  },
+  studentListContainer: {
+    flex: 1,
+  },
+  listHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+    paddingHorizontal: 5,
+  },
+  listTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  statusLegend: {
+    flexDirection: 'row',
+    gap: 15,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 5,
+  },
+  availableDot: {
+    backgroundColor: '#4a6fa5',
+  },
+  completedDot: {
+    backgroundColor: '#4CAF50',
+  },
+  legendText: {
+    fontSize: 11,
+    color: '#666',
+  },
+  listContent: {
+    paddingBottom: 20,
+  },
+  studentCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'white',
+    padding: 15,
+    marginBottom: 10,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  selectedStudentCard: {
+    backgroundColor: '#FFF8E1',
+    borderColor: '#fe9c3b',
+    transform: [{ scale: 0.98 }],
+  },
+  completedStudentCard: {
+    backgroundColor: '#f9f9f9',
+    opacity: 0.8,
+  },
+  studentCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  rollNumberBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  selectedRollBadge: {
+    backgroundColor: '#fe9c3b',
+  },
+  completedRollBadge: {
+    backgroundColor: '#4CAF50',
+  },
+  rollNumberText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#666',
+  },
+  rollNumberTextSelected: {
+    color: 'white',
+  },
+  studentInfo: {
+    marginLeft: 15,
+    flex: 1,
+  },
+  studentName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  studentId: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  studentCardRight: {
+    alignItems: 'flex-end',
+  },
+  completedStatus: {
+    alignItems: 'center',
+  },
+  completedText: {
+    fontSize: 10,
+    color: '#4CAF50',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  selectedStatus: {
+    alignItems: 'center',
+  },
+  selectedText: {
+    fontSize: 10,
+    color: '#fe9c3b',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  emptyIconCircle: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  emptyStateTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#666',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  emptyStateSubtitle: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 25,
+  },
+  emptyStateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fe9c3b',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+    elevation: 3,
+  },
+  emptyStateButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 10,
+  },
+  assessmentButtonNew: {
+    backgroundColor: '#fe9c3b',
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  assessmentButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  assessmentButtonIcon: {
+    marginRight: 12,
+  },
+  assessmentButtonTextContainer: {
+    flex: 1,
+  },
+  assessmentButtonMainText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  assessmentButtonSubText: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 12,
+    marginTop: 2,
+  },
   backButton: {
     padding: 10,
     backgroundColor: '#03030338',
@@ -1827,7 +2427,7 @@ const styles = StyleSheet.create({
     fontSize: isTablet ? 18 : 14,
     color: '#050505',
     textAlign: 'center',
-    marginTop: 5,
+    marginBottom: -9,
     fontWeight: '500',
   },
   contentContainer: {
@@ -2325,6 +2925,299 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#7f8c8d',
     fontWeight: '500',
+  },
+  studentInfoCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 20,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  studentInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  studentInfoText: {
+    fontSize: 14,
+    color: '#333',
+    marginLeft: 12,
+    flex: 1,
+  },
+  studentInfoLabel: {
+    fontWeight: '600',
+    color: '#666',
+  },
+
+  timerCircleRecording: {
+    borderColor: '#FF6B6B',
+    backgroundColor: '#FFF5F5',
+  },
+  timerCircleCompleted: {
+    borderColor: '#4CAF50',
+    backgroundColor: '#F0FFF4',
+  },
+
+  recordingPulse: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FF6B6B',
+    marginRight: 8,
+    animation: 'pulse 1.5s infinite',
+  },
+
+  passageCard: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    marginBottom: 25,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    overflow: 'hidden',
+  },
+  passageHeader: {
+    backgroundColor: '#F8F9FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EDF2F7',
+  },
+  passageTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#4a6fa5',
+    marginLeft: 12,
+    flex: 1,
+  },
+  passageContent: {
+    padding: 20,
+  },
+  passageSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 20,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    lineHeight: 20,
+  },
+  passageTextContainer: {
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E8E8E8',
+  },
+  sentenceContainer: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    alignItems: 'flex-start',
+  },
+  sentenceNumber: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fe9c3b',
+    minWidth: 25,
+    marginTop: 3,
+  },
+  sentenceTextContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginLeft: 10,
+  },
+  wordText: {
+    fontSize: isTablet ? 20 : 18,
+    color: '#2D3748',
+    marginRight: 4,
+    marginBottom: 4,
+    lineHeight: 28,
+  },
+  currentWordText: {
+    backgroundColor: '#74b9ff',
+    color: 'white',
+    fontWeight: '700',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  correctWordText: {
+    color: '#00b894',
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+    textDecorationColor: '#00b894',
+  },
+  wrongWordText: {
+    color: '#e17055',
+    fontWeight: '600',
+    textDecorationLine: 'line-through',
+    textDecorationColor: '#e17055',
+  },
+  sentenceStatus: {
+    marginLeft: 10,
+    marginTop: 6,
+  },
+
+  readingGuide: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 15,
+    marginTop: 15,
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#EDF2F7',
+  },
+  guideItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  guideDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  guideCurrent: {
+    backgroundColor: '#74b9ff',
+  },
+  guideCorrect: {
+    backgroundColor: '#00b894',
+  },
+  guideWrong: {
+    backgroundColor: '#e17055',
+  },
+  guideText: {
+    fontSize: 12,
+    color: '#666',
+  },
+
+  playbackSection: {
+    marginBottom: 15,
+  },
+  playbackTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#4a6fa5',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+
+  progressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  progressTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4a6fa5',
+  },
+  progressPercent: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#fe9c3b',
+  },
+  progressBar: {
+    width: '100%',
+    height: 10,
+    backgroundColor: '#E8E8E8',
+    borderRadius: 5,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#4ECDC4',
+    borderRadius: 5,
+  },
+  progressText: {
+    fontSize: 13,
+    color: '#7f8c8d',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+
+  // Update existing button styles for better spacing
+  primaryButton: {
+    borderRadius: 12,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    marginBottom: 15,
+  },
+  secondaryButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 10,
+    gap: 8,
+  },
+  navButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+
+  // Update instruction styles
+  instructionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0984e3',
+    marginLeft: 8,
+  },
+  instructionText: {
+    fontSize: 14,
+    color: '#2c3e50',
+    lineHeight: 22,
+  },
+
+  // Update timer label
+  timerLabel: {
+    fontSize: 14,
+    color: '#7f8c8d',
+    marginTop: 4,
+    fontWeight: '600',
+  },
+
+  // Update recording status
+  recordingText: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+
+  // Add keyframes for pulse animation (if needed)
+  '@keyframes pulse': {
+    '0%': {
+      opacity: 1,
+      transform: [{ scale: 1 }],
+    },
+    '50%': {
+      opacity: 0.5,
+      transform: [{ scale: 1.2 }],
+    },
+    '100%': {
+      opacity: 1,
+      transform: [{ scale: 1 }],
+    },
   },
 });
 
