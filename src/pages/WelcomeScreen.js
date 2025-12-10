@@ -71,7 +71,7 @@ const WelcomeScreen = ({ navigation }) => {
     <SafeAreaView style={styles.container}>
       {/* Header Logo/Title */}
       <View style={styles.header}>
-        <Text style={styles.title}>ORF Assessment</Text>
+        <Text style={styles.title}>Image capture</Text>
         <Text style={styles.subtitle}>ଓଡ଼ିଆ ପଢିବା ମୂଲ୍ୟାୟନ</Text>
       </View>
 
@@ -132,7 +132,7 @@ const WelcomeScreen = ({ navigation }) => {
       <View style={styles.footer}>
         <TouchableOpacity
           style={styles.startButton}
-          onPress={() => navigation.replace('AssessmentFlow')}
+          onPress={() => navigation.replace('ImageCapture')}
         >
           <Text style={styles.startButtonText}>ଆରମ୍ଭ କରନ୍ତୁ</Text>
           <MaterialIcons
