@@ -107,56 +107,22 @@ const AssessmentFlow = ({ navigation, user }) => {
   useEffect(() => {
     const backAction = () => {
       if (currentSection === 'schoolInfo') {
-        Alert.alert('', 'Are you sure you want to exit?', [
-          // Alert.alert('Exit App', 'Are you sure you want to exit?', [
-          {
-            text: 'Cancel',
-            onPress: () => null,
-            style: 'cancel',
-          },
-          {
-            text: 'YES',
-            onPress: () => {
-              //   BackHandler.exitApp();
-              navigation.navigate('Welcome');
-              setSelectedDistrict('');
-              setSelectedBlock('');
-              setSelectedCluster('');
-              setSelectedSchool('');
-              setSelectedClass('');
-            },
-          },
-        ]);
+        // Navigate to WelcomeScreen when on schoolInfo section
+        navigation.navigate('Welcome');
         return true;
       } else if (currentSection === 'studentSelection') {
-        Alert.alert(
-          'Go Back',
-          'Are you sure you want to go back to school selection?',
-          [
-            {
-              text: 'Cancel',
-              onPress: () => null,
-              style: 'cancel',
-            },
-            {
-              text: 'YES',
-              onPress: () => setCurrentSection('schoolInfo'),
-            },
-          ],
-        );
+        // Go back to school selection
+        setCurrentSection('schoolInfo');
         return true;
       } else if (currentSection === 'assessment') {
+        // Show confirmation before going back to student selection
         Alert.alert(
-          'Go Back',
-          'Are you sure you want to go back to student selection? Unsaved recording will be lost.',
+          'ପଛକୁ ଯାଆନ୍ତୁ',
+          'ଆପଣ ନିଶ୍ଚିତ କି ପଛକୁ ଯିବେ? ସେଭ୍ ହୋଇନଥିବା ରେକର୍ଡିଂ ନଷ୍ଟ ହେବ।',
           [
+            { text: 'ବାତିଲ୍', style: 'cancel' },
             {
-              text: 'Cancel',
-              onPress: () => null,
-              style: 'cancel',
-            },
-            {
-              text: 'YES',
+              text: 'ହଁ',
               onPress: () => setCurrentSection('studentSelection'),
             },
           ],
@@ -172,7 +138,7 @@ const AssessmentFlow = ({ navigation, user }) => {
     );
 
     return () => backHandler.remove();
-  }, [currentSection]);
+  }, [currentSection, navigation]);
 
   const grade1Data = {
     words:
@@ -180,40 +146,6 @@ const AssessmentFlow = ({ navigation, user }) => {
         .split(' ')
         .filter(word => word.trim() !== '' && word !== '।'),
   };
-
-  // Back handler for exit app
-  useEffect(() => {
-    const backAction = () => {
-      if (currentSection === 'schoolInfo') {
-        Alert.alert('Exit App', 'Are you sure you want to exit?', [
-          {
-            text: 'Cancel',
-            onPress: () => null,
-            style: 'cancel',
-          },
-          {
-            text: 'YES',
-            onPress: () => BackHandler.exitApp(),
-          },
-        ]);
-        return true;
-      } else if (currentSection === 'studentSelection') {
-        setCurrentSection('schoolInfo');
-        return true;
-      } else if (currentSection === 'assessment') {
-        setCurrentSection('studentSelection');
-        return true;
-      }
-      return false;
-    };
-
-    const backHandler = BackHandler.addEventListener(
-      'hardwareBackPress',
-      backAction,
-    );
-
-    return () => backHandler.remove();
-  }, [currentSection]);
 
   const UploadFileToCloud = async (fileUri, fileName) => {
     try {
@@ -970,17 +902,7 @@ const AssessmentFlow = ({ navigation, user }) => {
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => {
-              Alert.alert('Exit App', 'Are you sure you want to exit?', [
-                {
-                  text: 'Cancel',
-                  onPress: () => null,
-                  style: 'cancel',
-                },
-                {
-                  text: 'YES',
-                  onPress: () => BackHandler.exitApp(),
-                },
-              ]);
+              navigation.navigate('Welcome');
             }}
           >
             <MaterialIcons name="arrow-back" size={25} color="#050505ff" />
@@ -1568,16 +1490,16 @@ const AssessmentFlow = ({ navigation, user }) => {
               style={styles.backButton}
               onPress={() => {
                 Alert.alert(
-                  'Go Back',
-                  'Are you sure you want to go back to student selection? Unsaved recording will be lost.',
+                  'ପଛକୁ ଯାଆନ୍ତୁ',
+                  'ଆପଣ ନିଶ୍ଚିତ କି ପଛକୁ ଯିବେ? ସେଭ୍ ହୋଇନଥିବା ରେକର୍ଡିଂ ନଷ୍ଟ ହେବ।',
                   [
                     {
-                      text: 'Cancel',
+                      text: 'ବାତିଲ୍',
                       onPress: () => null,
                       style: 'cancel',
                     },
                     {
-                      text: 'YES',
+                      text: 'ହଁ',
                       onPress: () => setCurrentSection('studentSelection'),
                     },
                   ],

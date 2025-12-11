@@ -33,72 +33,48 @@ const ImageCapture = ({ navigation }) => {
   const [backPressCount, setBackPressCount] = useState(0);
 
   // Handle back button press
+
   const handleBackPress = useCallback(() => {
     if (isScanning) {
-      // Don't exit while scanning
       return true;
     }
 
     if (showPreview && capturedImage && !imageUrl) {
-      // If in preview mode (before upload), go back to initial view
       retakePicture();
       return true;
     }
 
     if (imageUrl) {
-      // If upload successful, reset everything
       resetToInitialView();
       return true;
     }
 
-    // If on initial view, show exit confirmation
-    if (backPressCount === 0) {
-      setBackPressCount(1);
-      Alert.alert(
-        'Exit App',
-        'Are you sure you want to exit?',
-        [
-          {
-            text: 'Cancel',
-            onPress: () => {
-              setBackPressCount(0);
-            },
-            style: 'cancel',
-          },
-          {
-            text: 'Exit',
-            onPress: () => BackHandler.exitApp(),
-          },
-        ],
-        { cancelable: false },
-      );
+    navigation.navigate('Welcome');
+    return true;
+  }, [isScanning, showPreview, capturedImage, imageUrl, navigation]);
 
-      // Reset back press count after 2 seconds
-      setTimeout(() => {
-        setBackPressCount(0);
-      }, 2000);
-
-      return true;
-    }
-
-    return false;
-  }, [isScanning, showPreview, capturedImage, imageUrl, backPressCount]);
-
-  // Add back handler
   useEffect(() => {
     const backHandler = BackHandler.addEventListener(
       'hardwareBackPress',
       handleBackPress,
     );
 
-    // Cleanup function
     return () => {
       backHandler.remove();
-      setBackPressCount(0); // Reset on unmount
+      setBackPressCount(0);
     };
   }, [handleBackPress]);
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      handleBackPress,
+    );
 
-  // Request camera permission for Android
+    return () => {
+      backHandler.remove();
+      setBackPressCount(0);
+    };
+  }, [handleBackPress]);
   const requestCameraPermission = async () => {
     if (Platform.OS !== 'android') {
       setHasCameraPermission(true);
@@ -398,34 +374,11 @@ const ImageCapture = ({ navigation }) => {
 
   const navigateBack = () => {
     if (showPreview && capturedImage && !imageUrl) {
-      // If in preview mode (before upload), go back to initial view
       retakePicture();
     } else if (imageUrl) {
-      // If upload successful, reset everything
       resetToInitialView();
     } else {
-      // If on initial view, show exit confirmation
-      Alert.alert(
-        'Exit App',
-        'Are you sure you want to exit?',
-        [
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
-          {
-            text: 'Exit',
-            onPress: () => {
-              if (Platform.OS === 'android') {
-                BackHandler.exitApp();
-              } else {
-                navigation.goBack();
-              }
-            },
-          },
-        ],
-        { cancelable: false },
-      );
+      navigation.navigate('Welcome');
     }
   };
 
