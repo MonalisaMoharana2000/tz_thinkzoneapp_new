@@ -61,7 +61,8 @@ const AssessmentFlow = ({ navigation, user }) => {
   const [schools, setSchools] = useState([]);
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
-
+  console.log('students----->', students);
+  const [gender, setGender] = useState('male');
   const [selectedDistrict, setSelectedDistrict] = useState('');
   const [selectedDistrictCode, setSelectedDistrictCode] = useState('');
   const [selectedBlock, setSelectedBlock] = useState('');
@@ -80,6 +81,7 @@ const AssessmentFlow = ({ navigation, user }) => {
   const [selectedStudentId, setSelectedStudentId] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState('');
   const [completedStudents, setCompletedStudents] = useState([]);
+  const [pendingStudents, setPendingStudents] = useState([]);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [studentNumber, setStudentNumber] = useState('');
   const [isSavingStudent, setIsSavingStudent] = useState(false);
@@ -98,6 +100,11 @@ const AssessmentFlow = ({ navigation, user }) => {
   const [canStopAudio, setCanStopAudio] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('idle'); // 'idle', 'uploading', 'success', 'error'
   const [audioUrl, setAudioUrl] = useState('');
+
+  const [textData, setTextData] = useState(null);
+  const [loadingText, setLoadingText] = useState(false);
+  const [textId, setTextId] = useState('');
+
   const timerRef = useRef(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const audioInitPromiseRef = useRef(null);
@@ -139,13 +146,6 @@ const AssessmentFlow = ({ navigation, user }) => {
 
     return () => backHandler.remove();
   }, [currentSection, navigation]);
-
-  const grade1Data = {
-    words:
-      'ବଣରେ ବିଲୁଆଟିଏ ଥିଲା । ସେ ଭୋକିଲା ଥିଲା । ନଦୀକୂଳରେ ଗୋଟିଏ ବତକକୁ ଦେଖିଲା । ବତକ ପୋକ ଖାଉଥିଲା । ବିଲୁଆ ବତକ ଆଡକୁ ଗଲା । ବତକ ବିଲୁଆକୁ ଦେଖି ଧାଇଁଲା । ବିଲୁଆ ତା ପଛରେ ଧାଇଁଲା । ବତକ ପାଣିକୁ ଡେଇଁ ପଡିଲା । ବତକ ପାଣିରେ ପହଁରି ପଳେଇଲା ।'
-        .split(' ')
-        .filter(word => word.trim() !== '' && word !== '।'),
-  };
 
   const UploadFileToCloud = async (fileUri, fileName) => {
     try {
@@ -394,53 +394,152 @@ const AssessmentFlow = ({ navigation, user }) => {
     return selectedSchoolObj?.udiseCode || selectedUdiseCode;
   };
 
-  // Fetch students from API
+  // Fetch students with ORF assessment status
   const fetchStudents = async (classId, school) => {
-    console.log('selectedCls------------>', classId);
-    console.log('selectedSchool------------>', school);
+    console.log('fetchStudents called with:', { classId, school });
     setIsLoadingData(true);
 
     try {
       const udiseCode = getUdiseCodeFromSelectedSchool();
 
-      const apiUrl = `/getAllStudents?udiseCode=${udiseCode}&class=${classId}`;
-      console.log('API URL:', apiUrl);
+      if (!udiseCode) {
+        console.error('No UDISE code found');
+        setStudents([]);
+        setCompletedStudents([]);
+        setPendingStudents([]);
+        return;
+      }
+
+      // Fetch students with ORF assessment status
+      const apiUrl = `/getStudsWithOrf?udiseCode=${udiseCode}&class=${classId}`;
+      console.log('Fetching students from API:', apiUrl);
 
       const response = await API.get(apiUrl);
+      console.log('API Response status:', response.status);
+      console.log('API Response data:', response.data);
 
-      console.log('Full response:', response);
+      if (response.status === 200 && response.data && response.data.success) {
+        const studentsData = response.data.data || [];
 
-      if (response.status === 200 && response.data) {
-        const studentsData = response.data.data || response.data || [];
+        // Process the response data
+        const formattedStudents = [];
+        const completed = [];
+        const pending = [];
 
-        console.log('Students data length:', studentsData.length);
+        if (Array.isArray(studentsData)) {
+          studentsData.forEach((student, index) => {
+            const studentObj = {
+              id: student.studentId || `student-${index}`,
+              studentId: student.studentId,
+              studentName: student.studentName || `Student ${index + 1}`,
+              rollNumber: student.rollNumber || index + 1,
+              class: student.class || classId,
+              hasORF: student.orfCompleted || false, // Changed from hasORF to orfCompleted
+              assessmentDate: student.assessmentDate,
+              assessmentScore: student.assessmentScore,
+              udiseCode: student.udiseCode,
+              school: student.school,
+              district: student.district,
+              block: student.block,
+              cluster: student.cluster,
+              gender: student.gender,
+            };
 
-        const formattedStudents = studentsData.map((student, index) => ({
-          id: student.studentId || `student-${index}`,
-          studentId: student.studentId,
-          studentName: student.studentName || student.name,
-          rollNumber: student.rollNumber || student.rollNo || index + 1,
-          class: classId,
-        }));
+            formattedStudents.push(studentObj);
+
+            // Check if student has ORF assessment - use orfCompleted field
+            if (student.orfCompleted === true) {
+              // Corrected this line
+              console.log('Student with ORF completed:', studentObj.rollNumber);
+              completed.push(studentObj.rollNumber?.toString());
+            } else {
+              pending.push(studentObj.rollNumber?.toString());
+            }
+          });
+        }
+
+        // Sort students by roll number
+        formattedStudents.sort((a, b) => {
+          const rollA = parseInt(a.rollNumber) || 0;
+          const rollB = parseInt(b.rollNumber) || 0;
+          return rollA - rollB;
+        });
 
         setStudents(formattedStudents);
+        setCompletedStudents(completed);
+        setPendingStudents(pending);
+
+        console.log(`Found ${formattedStudents.length} students`);
+        console.log(
+          `Completed: ${completed.length}, Pending: ${pending.length}`,
+        );
+        console.log('Completed roll numbers:', completed);
+        console.log('Pending roll numbers:', pending);
       } else {
+        console.log('No students data received or API not successful');
         setStudents([]);
+        setCompletedStudents([]);
+        setPendingStudents([]);
       }
     } catch (error) {
-      console.error('Full error object:', error);
-      console.error('Error config:', error.config);
-      setStudents([]);
+      console.error('Error fetching students with ORF status:', error);
+
+      if (error.response) {
+        console.error('Response error:', {
+          status: error.response.status,
+          data: error.response.data,
+        });
+      }
+
+      // Try fallback to getAllStudents
+      await fetchAllStudentsFallback(classId);
     } finally {
       setIsLoadingData(false);
     }
   };
 
+  // Fallback function
+  const fetchAllStudentsFallback = async classId => {
+    try {
+      const udiseCode = getUdiseCodeFromSelectedSchool();
+      if (!udiseCode) return;
+
+      console.log('Trying fallback API: getAllStudents');
+      const fallbackResponse = await API.get(
+        `/getAllStudents?udiseCode=${udiseCode}&class=${classId}`,
+      );
+
+      if (fallbackResponse.status === 200 && fallbackResponse.data) {
+        const fallbackData =
+          fallbackResponse.data.data || fallbackResponse.data || [];
+        const formattedStudents = fallbackData.map((student, index) => ({
+          id: student.studentId || `student-${index}`,
+          studentId: student.studentId,
+          studentName:
+            student.studentName || student.name || `Student ${index + 1}`,
+          rollNumber: student.rollNumber || student.rollNo || index + 1,
+          class: classId,
+          hasORF: false, // Assume no ORF assessment in fallback
+        }));
+
+        setStudents(formattedStudents);
+        setCompletedStudents([]);
+        setPendingStudents(
+          formattedStudents.map(s => s.rollNumber?.toString()),
+        );
+      }
+    } catch (fallbackError) {
+      console.error('Fallback API also failed:', fallbackError);
+      setStudents([]);
+      setCompletedStudents([]);
+      setPendingStudents([]);
+    }
+  };
   const saveStudentToServer = async studentData => {
     console.log('studentData---->', studentData);
     try {
       setIsSavingStudent(true);
-      const response = await API.post(`/saveStudent`, studentData);
+      const response = await API.post(`/createTempStudent`, studentData);
       console.log('save student=-------->', response.data, response.status);
 
       if (response.status === 201) {
@@ -470,8 +569,25 @@ const AssessmentFlow = ({ navigation, user }) => {
       }
       return response.data;
     } catch (error) {
-      console.error('Error saving student:', error);
-      Alert.alert('Error', 'Failed to save student. Please try again.');
+      console.error('Error saving student:', error.response);
+      if (error.response.status === 409) {
+        Alert.alert(
+          `${error.response.data.error}`,
+          `${error.response.data.message}`,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // setIsAddModalVisible(false);
+                setStudentNumber('');
+              },
+            },
+          ],
+        );
+      } else {
+        Alert.alert('Error', 'Failed to save student. Please try again.');
+      }
+
       throw error;
     } finally {
       setIsSavingStudent(false);
@@ -483,7 +599,8 @@ const AssessmentFlow = ({ navigation, user }) => {
 
     const studentData = {
       rollNumber: parseInt(studentNumber),
-      studentName: 'ନୂତନ ଶିକ୍ଷାର୍ଥୀ',
+      gender: gender,
+      studentName: `ନୂତନ ଶିକ୍ଷାର୍ଥୀ ${selectedClass}-${studentNumber}`,
       class: selectedClass,
       school: selectedSchool,
       udiseCode: selectedUdiseCode,
@@ -570,140 +687,6 @@ const AssessmentFlow = ({ navigation, user }) => {
       }
     };
   }, [recording]);
-
-  const callSpeechToTextAPI = async audioPath => {
-    try {
-      setIsLoading(true);
-      const filePath = audioPath;
-      if (!filePath) {
-        throw new Error('No audio file path found');
-      }
-      const fileUri = filePath.startsWith('file://')
-        ? filePath
-        : `file://${filePath}`;
-      const formData = new FormData();
-      formData.append('model', 'saarika:v2.5');
-      formData.append('language_code', 'od-IN');
-
-      formData.append('file', {
-        uri: fileUri,
-        type: 'audio/wav',
-        name: 'rec1.wav',
-      });
-
-      const response = await fetch('https://api.sarvam.ai/speech-to-text', {
-        method: 'POST',
-        headers: {
-          'api-subscription-key': 'sk_kqm4cwc1_jPJyRWTn0vqtvrW5uTqzEsJ8',
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        setIsLoading(false);
-        const text = await response.text();
-        throw new Error(`API error ${response.status}: ${text}`);
-      }
-
-      const result = await response.json();
-      console.log('Transcription response:', result);
-
-      if (result.transcript) {
-        const transcriptWords = result.transcript
-          .split(' ')
-          .filter(w => w.trim() !== '');
-
-        console.log('Transcript words:', transcriptWords);
-        console.log('Grade 1 words:', grade1Data.words);
-
-        const newWordStatus = {};
-
-        grade1Data.words.forEach((originalWord, index) => {
-          const cleanOriginalWord = originalWord
-            .replace(/[.,;:!?।]/g, '')
-            .toLowerCase();
-
-          let bestMatchScore = 0;
-
-          transcriptWords.forEach(transcriptWord => {
-            const cleanTranscriptWord = transcriptWord
-              .replace(/[.,;:!?।]/g, '')
-              .toLowerCase();
-
-            const matchingChars = cleanOriginalWord
-              .split('')
-              .filter((char, charIndex) => {
-                return cleanTranscriptWord[charIndex] === char;
-              }).length;
-
-            const matchPercentage = matchingChars / cleanOriginalWord.length;
-
-            if (matchPercentage > bestMatchScore) {
-              bestMatchScore = matchPercentage;
-            }
-
-            if (
-              cleanOriginalWord.includes(cleanTranscriptWord) ||
-              cleanTranscriptWord.includes(cleanOriginalWord)
-            ) {
-              const overlapLength = Math.min(
-                cleanOriginalWord.length,
-                cleanTranscriptWord.length,
-              );
-              const totalLength = Math.max(
-                cleanOriginalWord.length,
-                cleanTranscriptWord.length,
-              );
-              const overlapPercentage = overlapLength / totalLength;
-
-              if (overlapPercentage > bestMatchScore) {
-                bestMatchScore = overlapPercentage;
-              }
-            }
-          });
-
-          const fullTextMatch = result.transcript
-            .replace(/[.,;:!?।]/g, '')
-            .toLowerCase()
-            .includes(cleanOriginalWord);
-
-          if (fullTextMatch) {
-            bestMatchScore = Math.max(bestMatchScore, 0.8);
-          }
-
-          if (bestMatchScore > 0.5) {
-            newWordStatus[index] = 'correct';
-            console.log(
-              `✓ Word "${originalWord}" marked as correct (${Math.round(
-                bestMatchScore * 100,
-              )}% match)`,
-            );
-          } else {
-            newWordStatus[index] = 'wrong';
-            console.log(
-              `✗ Word "${originalWord}" marked as wrong (${Math.round(
-                bestMatchScore * 100,
-              )}% match)`,
-            );
-          }
-        });
-
-        setWordStatus(newWordStatus);
-
-        const correctCount = Object.values(newWordStatus).filter(
-          status => status === 'correct',
-        ).length;
-        console.log(
-          `📊 Results: ${correctCount}/${grade1Data.words.length} words correct`,
-        );
-      }
-    } catch (error) {
-      console.error('Speech-to-text API error:', error);
-      Alert.alert('Error', 'Failed to process audio. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const requestPermission = async () => {
     try {
@@ -1153,6 +1136,39 @@ const AssessmentFlow = ({ navigation, user }) => {
   // Student Selection Component
 
   const renderStudentSelection = () => {
+    // Calculate if selected student is completed - FIXED VERSION
+    const isSelectedStudentCompleted = () => {
+      if (!selectedStudentRoll) return false;
+
+      // First check if roll number is in completedStudents array
+      if (completedStudents.includes(selectedStudentRoll.toString())) {
+        console.log(
+          `Student ${selectedStudentRoll} found in completedStudents array`,
+        );
+        return true;
+      }
+
+      // Also check the students array for hasORF property
+      const selectedStudentObj = students.find(
+        student =>
+          student.rollNumber?.toString() === selectedStudentRoll?.toString(),
+      );
+
+      if (selectedStudentObj) {
+        console.log(
+          `Student ${selectedStudentRoll} hasORF: ${selectedStudentObj.hasORF}`,
+        );
+        return selectedStudentObj.hasORF === true;
+      }
+
+      return false;
+    };
+
+    const selectedStudentIsCompleted = isSelectedStudentCompleted();
+    console.log(
+      `Button state - Selected: ${selectedStudentRoll}, Completed: ${selectedStudentIsCompleted}, Loading: ${isLoadingData}`,
+    );
+
     return (
       <View style={styles.fullContainer}>
         <View style={styles.header}>
@@ -1181,15 +1197,23 @@ const AssessmentFlow = ({ navigation, user }) => {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <MaterialIcons name="people" size={24} color="#4CAF50" />
+            <MaterialIcons name="check-circle" size={24} color="#4CAF50" />
             <View style={styles.statTextContainer}>
-              <Text style={styles.statLabel}>ମୋଟ ଶିକ୍ଷାର୍ଥୀ</Text>
-              <Text style={styles.statValue}>{students.length}</Text>
+              <Text style={styles.statLabel}>Completed</Text>
+              <Text style={styles.statValue}>{completedStudents.length}</Text>
+            </View>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <MaterialIcons name="pending" size={24} color="#FF9800" />
+            <View style={styles.statTextContainer}>
+              <Text style={styles.statLabel}>Pending</Text>
+              <Text style={styles.statValue}>{pendingStudents.length}</Text>
             </View>
           </View>
         </View>
 
-        {/* Add Student Button - Redesigned */}
+        {/* Add Student Button */}
         <TouchableOpacity
           onPress={() => setIsAddModalVisible(true)}
           style={styles.addStudentButtonNew}
@@ -1243,6 +1267,78 @@ const AssessmentFlow = ({ navigation, user }) => {
                 />
               </View>
 
+              {/* Gender Selection */}
+              <View style={styles.genderContainer}>
+                <Text style={styles.genderLabel}>ଲିଙ୍ଗ ଚୟନ କରନ୍ତୁ</Text>
+                <View style={styles.genderOptionsContainer}>
+                  <TouchableOpacity
+                    style={[
+                      styles.genderOption,
+                      gender === 'male' && styles.genderOptionSelected,
+                    ]}
+                    onPress={() => setGender('male')}
+                    disabled={isSavingStudent}
+                  >
+                    <View
+                      style={[
+                        styles.genderRadio,
+                        gender === 'male' && styles.genderRadioSelected,
+                      ]}
+                    >
+                      {gender === 'male' && (
+                        <View style={styles.genderRadioInner} />
+                      )}
+                    </View>
+                    <MaterialIcons
+                      name="male"
+                      size={20}
+                      color={gender === 'male' ? '#4a6fa5' : '#666'}
+                    />
+                    <Text
+                      style={[
+                        styles.genderOptionText,
+                        gender === 'male' && styles.genderOptionTextSelected,
+                      ]}
+                    >
+                      ପୁରୁଷ
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.genderOption,
+                      gender === 'female' && styles.genderOptionSelected,
+                    ]}
+                    onPress={() => setGender('female')}
+                    disabled={isSavingStudent}
+                  >
+                    <View
+                      style={[
+                        styles.genderRadio,
+                        gender === 'female' && styles.genderRadioSelected,
+                      ]}
+                    >
+                      {gender === 'female' && (
+                        <View style={styles.genderRadioInner} />
+                      )}
+                    </View>
+                    <MaterialIcons
+                      name="female"
+                      size={20}
+                      color={gender === 'female' ? '#e91e63' : '#666'}
+                    />
+                    <Text
+                      style={[
+                        styles.genderOptionText,
+                        gender === 'female' && styles.genderOptionTextSelected,
+                      ]}
+                    >
+                      ମହିଳା
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
               {isSavingStudent ? (
                 <View style={styles.savingContainer}>
                   <ActivityIndicator size="small" color="#fe9c3b" />
@@ -1254,6 +1350,7 @@ const AssessmentFlow = ({ navigation, user }) => {
                     onPress={() => {
                       setIsAddModalVisible(false);
                       setStudentNumber('');
+                      setGender('male');
                     }}
                     style={styles.modalCancelButtonNew}
                   >
@@ -1300,10 +1397,10 @@ const AssessmentFlow = ({ navigation, user }) => {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.listContent}
                 renderItem={({ item, index }) => {
-                  const isCompleted = completedStudents.includes(
-                    item.rollNumber?.toString(),
-                  );
-                  const isSelected = selectedStudentRoll === item.rollNumber;
+                  const isCompleted = item.hasORF === true;
+                  const isSelected =
+                    selectedStudentRoll?.toString() ===
+                    item.rollNumber?.toString();
 
                   return (
                     <TouchableOpacity
@@ -1311,12 +1408,21 @@ const AssessmentFlow = ({ navigation, user }) => {
                         styles.studentCard,
                         isSelected && styles.selectedStudentCard,
                         isCompleted && styles.completedStudentCard,
+                        !isCompleted && styles.pendingStudentCard,
                       ]}
                       onPress={() => {
+                        // Only allow selection for pending students
                         if (!isCompleted) {
+                          console.log(`Selecting student: ${item}`);
                           setSelectedStudentRoll(item.rollNumber);
                           setSelectedStudentId(item.studentId);
-                          setSelectedStudent(item.studentName);
+                          setSelectedStudent(
+                            item.studentName || `Student ${item.rollNumber}`,
+                          );
+                        } else {
+                          console.log(
+                            `Cannot select - student ${item.rollNumber} already completed`,
+                          );
                         }
                       }}
                       disabled={isCompleted}
@@ -1328,6 +1434,7 @@ const AssessmentFlow = ({ navigation, user }) => {
                             styles.rollNumberBadge,
                             isSelected && styles.selectedRollBadge,
                             isCompleted && styles.completedRollBadge,
+                            !isCompleted && styles.pendingRollBadge,
                           ]}
                         >
                           <Text
@@ -1342,11 +1449,26 @@ const AssessmentFlow = ({ navigation, user }) => {
                         </View>
                         <View style={styles.studentInfo}>
                           <Text style={styles.studentName}>
-                            {item.studentName}
+                            {item.studentName || `Student ${item.rollNumber}`}
+                            {item.gender && (
+                              <MaterialIcons
+                                name={item.gender}
+                                size={14}
+                                color="#666"
+                                style={{ marginLeft: 6 }}
+                              />
+                            )}
                           </Text>
-                          <Text style={styles.studentId}>
-                            ID: {item.studentId || 'N/A'}
-                          </Text>
+                          <View style={styles.studentMeta}>
+                            <Text style={styles.studentId}>
+                              ID: {item.studentId || 'N/A'}
+                            </Text>
+                            {/* {isCompleted && (
+                            <Text style={styles.assessmentStatus}>
+                              ORF Completed
+                            </Text>
+                          )} */}
+                          </View>
                         </View>
                       </View>
 
@@ -1358,23 +1480,19 @@ const AssessmentFlow = ({ navigation, user }) => {
                               size={20}
                               color="#4CAF50"
                             />
-                            <Text style={styles.completedText}>ସମ୍ପୂର୍ଣ୍ଣ</Text>
-                          </View>
-                        ) : isSelected ? (
-                          <View style={styles.selectedStatus}>
-                            <MaterialIcons
-                              name="radio-button-checked"
-                              size={20}
-                              color="#fe9c3b"
-                            />
-                            <Text style={styles.selectedText}>ଚୟନିତ</Text>
+                            <Text style={styles.completedText}>
+                              ମୂଲ୍ୟାୟନ ସମ୍ପୂର୍ଣ୍ଣ
+                            </Text>
                           </View>
                         ) : (
-                          <MaterialIcons
-                            name="radio-button-unchecked"
-                            size={20}
-                            color="#ccc"
-                          />
+                          <View style={styles.pendingStatus}>
+                            <MaterialIcons
+                              name="pending"
+                              size={20}
+                              color="#FF9800"
+                            />
+                            <Text style={styles.pendingText}>ବାକି ଅଛି</Text>
+                          </View>
                         )}
                       </View>
                     </TouchableOpacity>
@@ -1405,39 +1523,62 @@ const AssessmentFlow = ({ navigation, user }) => {
             </View>
           )}
 
+          {/* ASSESSMENT BUTTON - FIXED */}
           <View style={styles.footer}>
             <TouchableOpacity
               style={[
                 styles.assessmentButtonNew,
-                (!selectedStudentRoll || isLoadingData) &&
+                (!selectedStudentRoll ||
+                  isLoadingData ||
+                  selectedStudentIsCompleted) &&
                   styles.disabledButton,
               ]}
               onPress={() => {
-                handleStartAssessment();
-                setCurrentSection('assessment');
+                if (
+                  selectedStudentRoll &&
+                  !selectedStudentIsCompleted &&
+                  !isLoadingData
+                ) {
+                  console.log(
+                    'Starting assessment for student:',
+                    selectedStudentRoll,
+                  );
+                  handleStartAssessment();
+                  setCurrentSection('assessment');
+                }
               }}
-              disabled={!selectedStudentRoll || isLoadingData}
+              disabled={
+                !selectedStudentRoll ||
+                isLoadingData ||
+                selectedStudentIsCompleted
+              }
             >
               <View style={styles.assessmentButtonContent}>
                 <MaterialIcons
-                  name="mic"
+                  name={selectedStudentIsCompleted ? 'check-circle' : 'mic'}
                   size={24}
                   color="white"
                   style={styles.assessmentButtonIcon}
                 />
                 <View style={styles.assessmentButtonTextContainer}>
                   <Text style={styles.assessmentButtonMainText}>
-                    ମୂଲ୍ୟାୟନ ଆରମ୍ଭ କରନ୍ତୁ
+                    {selectedStudentIsCompleted
+                      ? 'ମୂଲ୍ୟାୟନ ସମ୍ପୂର୍ଣ୍ଣ'
+                      : 'ମୂଲ୍ୟାୟନ ଆରମ୍ଭ କରନ୍ତୁ'}
                   </Text>
                   <Text style={styles.assessmentButtonSubText}>
                     {selectedStudentRoll
-                      ? `${selectedStudent} (ରୋଲ୍: ${selectedStudentRoll})`
+                      ? `${selectedStudent} (${
+                          selectedStudentIsCompleted
+                            ? 'ପୂର୍ବରୁ ମୂଲ୍ୟାୟନ ହୋଇଛି'
+                            : 'ନୂଆ ମୂଲ୍ୟାୟନ'
+                        })`
                       : 'ଏକ ଶିକ୍ଷାର୍ଥୀ ଚୟନ କରନ୍ତୁ'}
                   </Text>
                 </View>
               </View>
               <MaterialIcons
-                name="arrow-forward"
+                name={selectedStudentIsCompleted ? 'check' : 'arrow-forward'}
                 size={20}
                 color="white"
                 style={styles.buttonIcon}
@@ -1449,38 +1590,156 @@ const AssessmentFlow = ({ navigation, user }) => {
     );
   };
 
+  const fetchTextData = async grade => {
+    try {
+      setLoadingText(true);
+      console.log('Fetching text data for grade:', grade);
+
+      const apiUrl = `/getTextGrid/shuffled?userId=${
+        user?.userId || 'user123'
+      }&class=${grade}`;
+      console.log('Text API URL:', apiUrl);
+
+      const response = await API.get(apiUrl);
+      console.log('Text API Response:', response.data, response.status);
+
+      if (response.data.success && response.data.data) {
+        const { textId, textArr } = response.data.data;
+        setTextId(textId);
+
+        // Process textArr to create sentences
+        const sentences = processTextArrayToSentences(textArr);
+        setTextData({
+          textId,
+          textArr,
+          sentences,
+          title: `ପଠନ ବିଷୟ: ଶ୍ରେଣୀ ${grade} ପାଠ୍ୟ`,
+        });
+
+        return textArr; // Return for use in other functions
+      } else {
+        throw new Error('Failed to fetch text data');
+      }
+    } catch (error) {
+      console.error('Error fetching text data:', error);
+
+      // Fallback to default text if API fails
+      const fallbackTextArr = [
+        'ବଣରେ',
+        'ବିଲୁଆଟିଏ',
+        'ଥିଲା',
+        '।',
+        'ସେ',
+        'ଭୋକିଲା',
+        'ଥିଲା',
+        '।',
+        'ନଦୀକୂଳରେ',
+        'ଗୋଟିଏ',
+        'ବତକକୁ',
+        'ଦେଖିଲା',
+        '।',
+        'ବତକ',
+        'ପୋକ',
+        'ଖାଉଥିଲା',
+        '।',
+      ];
+
+      const sentences = processTextArrayToSentences(fallbackTextArr);
+      setTextData({
+        textId: 'fallback_text',
+        textArr: fallbackTextArr,
+        sentences,
+        title: 'ପଠନ ବିଷୟ: ବିଲୁଆ ଓ ବତକର କାହାଣୀ',
+      });
+
+      return fallbackTextArr;
+    } finally {
+      setLoadingText(false);
+    }
+  };
+
+  // Helper function to convert text array to sentences
+  const processTextArrayToSentences = textArr => {
+    if (!textArr || !Array.isArray(textArr)) return [];
+
+    const sentences = [];
+    let currentSentence = [];
+
+    textArr.forEach((word, index) => {
+      currentSentence.push(word);
+
+      // Check if word ends a sentence (contains punctuation)
+      if (
+        word.includes('।') ||
+        word.includes('.') ||
+        word.includes('!') ||
+        word.includes('?')
+      ) {
+        sentences.push(currentSentence.join(' '));
+        currentSentence = [];
+      }
+
+      // If we're at the end and have words, add as a sentence
+      if (index === textArr.length - 1 && currentSentence.length > 0) {
+        sentences.push(currentSentence.join(' '));
+      }
+    });
+
+    // If no sentences were formed (no punctuation), join all words
+    if (sentences.length === 0 && textArr.length > 0) {
+      sentences.push(textArr.join(' '));
+    }
+
+    return sentences;
+  };
+  // Add this useEffect near your other useEffect hooks
+  useEffect(() => {
+    if (selectedGrade && currentSection === 'assessment') {
+      console.log('Fetching text data for assessment');
+      fetchTextData(selectedClass); // Use selectedClass (1, 2, 3) as grade
+    }
+  }, [selectedGrade, currentSection, selectedClass]);
+  // Voice Assessment Component
   // Voice Assessment Component
   const renderVoiceAssessment = () => {
-    // Group words into sentences for paragraph display
-    const sentences = [
-      'ବଣରେ ବିଲୁଆଟିଏ ଥିଲା ।',
-      'ସେ ଭୋକିଲା ଥିଲା ।',
-      'ନଦୀକୂଳରେ ଗୋଟିଏ ବତକକୁ ଦେଖିଲା ।',
-      'ବତକ ପୋକ ଖାଉଥିଲା ।',
-      'ବିଲୁଆ ବତକ ଆଡକୁ ଗଲା ।',
-      'ବତକ ବିଲୁଆକୁ ଦେଖି ଧାଇଁଲା ।',
-      'ବିଲୁଆ ତା ପଛରେ ଧାଇଁଲା ।',
-      'ବତକ ପାଣିକୁ ଡେଇଁ ପଡିଲା ।',
-      'ବତକ ପାଣିରେ ପହଁରି ପଳେଇଲା ।',
-    ];
-
-    // Get word indices for each sentence
-    const getSentenceWords = sentenceIndex => {
-      let wordCount = 0;
-      for (let i = 0; i < sentenceIndex; i++) {
-        wordCount += sentences[i]
-          .split(' ')
-          .filter(w => w.trim() !== '' && w !== '।').length;
-      }
-      const currentSentenceWords = sentences[sentenceIndex]
-        .split(' ')
-        .filter(w => w.trim() !== '' && w !== '।');
-      return {
-        startIndex: wordCount,
-        endIndex: wordCount + currentSentenceWords.length - 1,
-        words: currentSentenceWords,
-      };
+    // Use textData if available, otherwise use fallback
+    const displayTextData = textData || {
+      textArr: [
+        'ବଣରେ',
+        'ବିଲୁଆଟିଏ',
+        'ଥିଲା',
+        '।',
+        'ସେ',
+        'ଭୋକିଲା',
+        'ଥିଲା',
+        '।',
+        'ନଦୀକୂଳରେ',
+        'ଗୋଟିଏ',
+        'ବତକକୁ',
+        'ଦେଖିଲା',
+        '।',
+        'ବତକ',
+        'ପୋକ',
+        'ଖାଉଥିଲା',
+        '।',
+      ],
+      sentences: [
+        'ବଣରେ ବିଲୁଆଟିଏ ଥିଲା ।',
+        'ସେ ଭୋକିଲା ଥିଲା ।',
+        'ନଦୀକୂଳରେ ଗୋଟିଏ ବତକକୁ ଦେଖିଲା ।',
+        'ବତକ ପୋକ ଖାଉଥିଲା ।',
+        'ବିଲୁଆ ବତକ ଆଡକୁ ଗଲା ।',
+        'ବତକ ବିଲୁଆକୁ ଦେଖି ଧାଇଁଲା ।',
+        'ବିଲୁଆ ତା ପଛରେ ଧାଇଁଲା ।',
+        'ବତକ ପାଣିକୁ ଡେଇଁ ପଡିଲା ।',
+        'ବତକ ପାଣିରେ ପହଁରି ପଳେଇଲା ।',
+      ],
+      title: 'ପଠନ ବିଷୟ: ବିଲୁଆ ଓ ବତକର କାହାଣୀ',
     };
+
+    const textArr = displayTextData.textArr || [];
+    const sentences = displayTextData.sentences;
+    const title = displayTextData.title;
 
     return (
       <View style={styles.fullContainer}>
@@ -1523,335 +1782,365 @@ const AssessmentFlow = ({ navigation, user }) => {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.assessmentContent}>
-            {/* Instructions Card */}
-            <View style={styles.instructionCard}>
-              <View style={styles.instructionHeader}>
-                <MaterialIcons name="info" size={20} color="#0984e3" />
-                <Text style={styles.instructionTitle}>ନିର୍ଦ୍ଦେଶାବଳୀ</Text>
-              </View>
-              <Text style={styles.instructionText}>
-                1. "ରେକର୍ଡିଂ ଆରମ୍ଭ କରନ୍ତୁ" ବଟନ୍ ଦବାନ୍ତୁ{'\n'}
-                2. ସମସ୍ତ ଶବ୍ଦ ସ୍ପଷ୍ଟ ଭାବରେ ପଢନ୍ତୁ{'\n'}
-                3. ଆପଣଙ୍କ ପାଖରେ ୩୦ ସେକେଣ୍ଡ ସମୟ ଅଛି{'\n'}
-                4. ସର୍ଭରକୁ ସେଭ୍ କରିବା ପାଇଁ "ସେଭ୍ କରନ୍ତୁ" ବଟନ୍ ଦବାନ୍ତୁ
-              </Text>
+          {loadingText ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#4a6fa5" />
+              <Text style={styles.loadingText}>ପାଠ୍ୟ ଲୋଡ୍ ହେଉଛି...</Text>
             </View>
-
-            {/* Student Info Card */}
-            <View style={styles.studentInfoCard}>
-              <View style={styles.studentInfoRow}>
-                <MaterialIcons name="person" size={20} color="#4a6fa5" />
-                <Text style={styles.studentInfoText}>
-                  <Text style={styles.studentInfoLabel}>ଶିକ୍ଷାର୍ଥୀ: </Text>
-                  {selectedStudent}
-                </Text>
-              </View>
-              <View style={styles.studentInfoRow}>
-                <MaterialIcons name="school" size={20} color="#fe9c3b" />
-                <Text style={styles.studentInfoText}>
-                  <Text style={styles.studentInfoLabel}>ରୋଲ୍: </Text>
-                  {selectedStudentRoll}
-                </Text>
-              </View>
-              <View style={styles.studentInfoRow}>
-                <MaterialIcons name="class" size={20} color="#4CAF50" />
-                <Text style={styles.studentInfoText}>
-                  <Text style={styles.studentInfoLabel}>ଶ୍ରେଣୀ: </Text>
-                  {selectedClass}
-                </Text>
-              </View>
-            </View>
-
-            {/* Timer Display */}
-            <View style={styles.timerContainer}>
-              <View
-                style={[
-                  styles.timerCircle,
-                  recording && styles.timerCircleRecording,
-                  !recording && filePath && styles.timerCircleCompleted,
-                ]}
-              >
-                <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
-                <Text style={styles.timerLabel}>
-                  {recording
-                    ? 'ରେକର୍ଡିଂ ହେଉଛି...'
-                    : filePath
-                    ? 'ରେକର୍ଡିଂ ସମାପ୍ତ'
-                    : 'ପ୍ରସ୍ତୁତ'}
-                </Text>
-              </View>
-
-              {/* Recording Status */}
-              {recording && (
-                <View style={styles.recordingStatus}>
-                  <View style={styles.recordingPulse} />
-                  <Text style={styles.recordingText}>ଲାଇଭ୍ ରେକର୍ଡିଂ</Text>
+          ) : (
+            <View style={styles.assessmentContent}>
+              {/* Instructions Card */}
+              <View style={styles.instructionCard}>
+                <View style={styles.instructionHeader}>
+                  <MaterialIcons name="info" size={20} color="#0984e3" />
+                  <Text style={styles.instructionTitle}>ନିର୍ଦ୍ଦେଶାବଳୀ</Text>
                 </View>
-              )}
-            </View>
-
-            {/* Reading Passage Card */}
-            <View style={styles.passageCard}>
-              <View style={styles.passageHeader}>
-                <MaterialIcons name="menu-book" size={24} color="#4a6fa5" />
-                <Text style={styles.passageTitle}>
-                  ପଠନ ବିଷୟ: ବିଲୁଆ ଓ ବତକର କାହାଣୀ
+                <Text style={styles.instructionText}>
+                  1. "ରେକର୍ଡିଂ ଆରମ୍ଭ କରନ୍ତୁ" ବଟନ୍ ଦବାନ୍ତୁ{'\n'}
+                  2. ସମସ୍ତ ଶବ୍ଦ ସ୍ପଷ୍ଟ ଭାବରେ ପଢନ୍ତୁ{'\n'}
+                  3. ଆପଣଙ୍କ ପାଖରେ ୩୦ ସେକେଣ୍ଡ ସମୟ ଅଛି{'\n'}
+                  4. ସର୍ଭରକୁ ସେଭ୍ କରିବା ପାଇଁ "ସେଭ୍ କରନ୍ତୁ" ବଟନ୍ ଦବାନ୍ତୁ
                 </Text>
               </View>
 
-              <View style={styles.passageContent}>
-                <Text style={styles.passageSubtitle}>
-                  ନିମ୍ନଲିଖିତ ବାକ୍ୟଗୁଡିକୁ ଉଚ୍ଚ ସ୍ୱରରେ ପଢନ୍ତୁ:
-                </Text>
+              {/* Student Info Card */}
+              <View style={styles.studentInfoCard}>
+                <View style={styles.studentInfoRow}>
+                  <MaterialIcons name="person" size={20} color="#4a6fa5" />
+                  <Text style={styles.studentInfoText}>
+                    <Text style={styles.studentInfoLabel}>ଶିକ୍ଷାର୍ଥୀ: </Text>
+                    {selectedStudent}
+                  </Text>
+                </View>
+                <View style={styles.studentInfoRow}>
+                  <MaterialIcons name="school" size={20} color="#fe9c3b" />
+                  <Text style={styles.studentInfoText}>
+                    <Text style={styles.studentInfoLabel}>ରୋଲ୍: </Text>
+                    {selectedStudentRoll}
+                  </Text>
+                </View>
+                <View style={styles.studentInfoRow}>
+                  <MaterialIcons name="class" size={20} color="#4CAF50" />
+                  <Text style={styles.studentInfoText}>
+                    <Text style={styles.studentInfoLabel}>ଶ୍ରେଣୀ: </Text>
+                    {selectedClass}
+                  </Text>
+                </View>
+                {textId && (
+                  <View style={styles.studentInfoRow}>
+                    <MaterialIcons name="book" size={20} color="#9C27B0" />
+                    <Text style={styles.studentInfoText}>
+                      <Text style={styles.studentInfoLabel}>ପାଠ୍ୟ ID: </Text>
+                      {textId.substring(0, 10)}...
+                    </Text>
+                  </View>
+                )}
+              </View>
 
-                <View style={styles.passageTextContainer}>
-                  {sentences.map((sentence, sentenceIndex) => {
-                    const sentenceData = getSentenceWords(sentenceIndex);
-                    const words = sentence.split(' ');
+              {/* Timer Display */}
+              <View style={styles.timerContainer}>
+                <View
+                  style={[
+                    styles.timerCircle,
+                    recording && styles.timerCircleRecording,
+                    !recording && filePath && styles.timerCircleCompleted,
+                  ]}
+                >
+                  <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
+                  <Text style={styles.timerLabel}>
+                    {recording
+                      ? 'ରେକର୍ଡିଂ ହେଉଛି...'
+                      : filePath
+                      ? 'ରେକର୍ଡିଂ ସମାପ୍ତ'
+                      : 'ପ୍ରସ୍ତୁତ'}
+                  </Text>
+                </View>
 
-                    return (
-                      <View
-                        key={sentenceIndex}
-                        style={styles.sentenceContainer}
-                      >
-                        <Text style={styles.sentenceNumber}>
-                          {sentenceIndex + 1}.
-                        </Text>
-                        <View style={styles.sentenceTextContainer}>
-                          {words.map((word, wordIndexInSentence) => {
-                            const globalWordIndex =
-                              sentenceData.startIndex + wordIndexInSentence;
-                            const isCorrect =
-                              wordStatus[globalWordIndex] === 'correct';
-                            const isWrong =
-                              wordStatus[globalWordIndex] === 'wrong';
-                            const isCurrent =
-                              currentWordIndex === globalWordIndex;
+                {/* Recording Status */}
+                {recording && (
+                  <View style={styles.recordingStatus}>
+                    <View style={styles.recordingPulse} />
+                    <Text style={styles.recordingText}>ଲାଇଭ୍ ରେକର୍ଡିଂ</Text>
+                  </View>
+                )}
+              </View>
 
-                            return (
+              {/* Reading Passage Card - UPDATED */}
+              <View style={styles.passageCard}>
+                <View style={styles.passageHeader}>
+                  <MaterialIcons name="menu-book" size={24} color="#4a6fa5" />
+                  <Text style={styles.passageTitle}>{title}</Text>
+                </View>
+
+                <View style={styles.passageContent}>
+                  <Text style={styles.passageSubtitle}>
+                    ନିମ୍ନଲିଖିତ ଶବ୍ଦଗୁଡିକୁ ଉଚ୍ଚ ସ୍ୱରରେ ପଢନ୍ତୁ:
+                  </Text>
+
+                  {textArr.length > 0 ? (
+                    <View style={styles.wordsGridContainer}>
+                      <View style={styles.wordsGrid}>
+                        {textArr.map((word, index) => {
+                          const isCurrent = currentWordIndex === index;
+                          const isCorrect = wordStatus[index] === 'correct';
+                          const isWrong = wordStatus[index] === 'wrong';
+
+                          return (
+                            <View
+                              key={index}
+                              style={[
+                                styles.wordBox,
+                                isCurrent && styles.activeWordBox,
+                                isCorrect && styles.correctWordBox,
+                                isWrong && styles.wrongWordBox,
+                              ]}
+                            >
                               <Text
-                                key={globalWordIndex}
                                 style={[
                                   styles.wordText,
-                                  isCurrent && styles.currentWordText,
+                                  isCurrent && styles.activeWordText,
                                   isCorrect && styles.correctWordText,
                                   isWrong && styles.wrongWordText,
                                 ]}
                               >
                                 {word}
                               </Text>
-                            );
-                          })}
-                        </View>
 
-                        {/* Sentence Status Indicator */}
-                        {sentenceData.words.some(
-                          (_, idx) => wordStatus[sentenceData.startIndex + idx],
-                        ) && (
-                          <View style={styles.sentenceStatus}>
-                            <MaterialIcons
-                              name={
-                                sentenceData.words.every(
-                                  (_, idx) =>
-                                    wordStatus[
-                                      sentenceData.startIndex + idx
-                                    ] === 'correct',
-                                )
-                                  ? 'check-circle'
-                                  : 'error'
-                              }
-                              size={16}
-                              color={
-                                sentenceData.words.every(
-                                  (_, idx) =>
-                                    wordStatus[
-                                      sentenceData.startIndex + idx
-                                    ] === 'correct',
-                                )
-                                  ? '#4CAF50'
-                                  : '#FF6B6B'
-                              }
-                            />
-                          </View>
-                        )}
+                              {/* Status Indicator */}
+                              {(isCorrect || isWrong) && (
+                                <View style={styles.statusIndicator}>
+                                  <MaterialIcons
+                                    name={isCorrect ? 'check' : 'close'}
+                                    size={10}
+                                    color={isCorrect ? '#00b894' : '#e17055'}
+                                  />
+                                </View>
+                              )}
+
+                              {/* Word Number */}
+                              {/* <Text style={styles.wordNumber}>{index + 1}</Text> */}
+                            </View>
+                          );
+                        })}
                       </View>
-                    );
-                  })}
+                    </View>
+                  ) : (
+                    <View style={styles.noTextContainer}>
+                      <MaterialIcons name="error" size={40} color="#ccc" />
+                      <Text style={styles.noTextMessage}>
+                        ପାଠ୍ୟ ସାମଗ୍ରୀ ଉପଲବ୍ଧ ନାହିଁ
+                      </Text>
+                    </View>
+                  )}
                 </View>
               </View>
-            </View>
 
-            {/* Recording Controls */}
-            <View style={styles.controlsSection}>
-              {/* Main Recording Button */}
-              <TouchableOpacity
-                onPress={recording ? stopRecording : startRecording}
-                style={[
-                  styles.primaryButton,
-                  recording ? styles.recordingButton : styles.recordButton,
-                  isLoading && styles.disabledButton,
-                ]}
-                disabled={isLoading}
-              >
-                <View style={styles.buttonContent}>
-                  <MaterialIcons
-                    name={recording ? 'stop-circle' : 'mic'}
-                    size={28}
-                    color="white"
-                  />
-                  <View style={styles.buttonTextContainer}>
-                    <Text style={styles.buttonMainText}>
-                      {recording
-                        ? 'ରେକର୍ଡିଂ ବନ୍ଦ କରନ୍ତୁ'
-                        : 'ରେକର୍ଡିଂ ଆରମ୍ଭ କରନ୍ତୁ'}
-                    </Text>
-                    <Text style={styles.buttonSubText}>
-                      {recording
-                        ? `${timeLeft} ସେକେଣ୍ଡ ବାକି ଅଛି`
-                        : '୩୦ ସେକେଣ୍ଡରେ ସମାପ୍ତ କରନ୍ତୁ'}
-                    </Text>
-                  </View>
-                </View>
-                {recording && (
-                  <View style={styles.recordingAnimation}>
-                    <View style={[styles.pulseDot, styles.pulse1]} />
-                    <View style={[styles.pulseDot, styles.pulse2]} />
-                    <View style={[styles.pulseDot, styles.pulse3]} />
-                  </View>
-                )}
-              </TouchableOpacity>
-
-              {/* Playback Controls - Only show if recording exists */}
-              {filePath && !recording && (
-                <View style={styles.playbackSection}>
-                  <Text style={styles.playbackTitle}>
-                    ରେକର୍ଡିଂ ପରୀକ୍ଷା କରନ୍ତୁ:
-                  </Text>
-                  <View style={styles.playbackControls}>
-                    <TouchableOpacity
-                      onPress={playAudio}
-                      style={[styles.secondaryButton, styles.playButton]}
-                      disabled={playing || isLoading}
-                    >
-                      <MaterialIcons
-                        name={playing ? 'pause' : 'play-arrow'}
-                        size={20}
-                        color="white"
-                      />
-                      <Text style={styles.secondaryButtonText}>
-                        {playing ? 'ବିରତ କରନ୍ତୁ' : 'ଶୁଣନ୍ତୁ'}
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      onPress={stopAudio}
-                      style={[styles.secondaryButton, styles.stopButton]}
-                      disabled={isLoading}
-                    >
-                      <MaterialIcons name="stop" size={20} color="white" />
-                      <Text style={styles.secondaryButtonText}>
-                        ବନ୍ଦ କରନ୍ତୁ
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
-
-              {/* Save Button */}
-              <TouchableOpacity
-                onPress={handleManualSave}
-                style={[
-                  styles.primaryButton,
-                  styles.saveButton,
-                  (!filePath || recording || playing || isLoading) &&
-                    styles.disabledButton,
-                ]}
-                disabled={!filePath || recording || playing || isLoading}
-              >
-                <View style={styles.buttonContent}>
-                  <MaterialIcons name="cloud-upload" size={24} color="white" />
-                  <View style={styles.buttonTextContainer}>
-                    <Text style={styles.buttonMainText}>
-                      {isLoading ? 'ସେଭ୍ ହେଉଛି...' : 'ସେଭ୍ କରନ୍ତୁ'}
-                    </Text>
-                    <Text style={styles.buttonSubText}>
-                      ସର୍ଭରକୁ ଅପଲୋଡ୍ କରନ୍ତୁ
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-
-              {/* Upload Status */}
-              {isLoading && (
-                <View style={styles.uploadStatus}>
-                  <ActivityIndicator size="small" color="#4ECDC4" />
-                  <Text style={styles.uploadStatusText}>
-                    {uploadStatus === 'uploading'
-                      ? 'ଅପଲୋଡ୍ ହେଉଛି...'
-                      : 'ପ୍ରକ୍ରିୟା କରୁଛି...'}
-                  </Text>
-                </View>
-              )}
-
-              {uploadStatus === 'success' && audioUrl && (
-                <View style={styles.successMessage}>
-                  <MaterialIcons
-                    name="check-circle"
-                    size={20}
-                    color="#00b894"
-                  />
-                  <Text style={styles.successText}>
-                    ସଫଳତାର ସହ ରେକର୍ଡିଂ ସେଭ୍ ହୋଇଛି!
-                  </Text>
-                </View>
-              )}
-
-              {/* Navigation Buttons */}
-              <View style={styles.navigationButtons}>
+              {/* Recording Controls */}
+              <View style={styles.controlsSection}>
+                {/* Main Recording Button */}
                 <TouchableOpacity
-                  onPress={() => {
-                    Alert.alert(
-                      'ପଛକୁ ଯାଆନ୍ତୁ',
-                      'ଆପଣ ନିଶ୍ଚିତ କି ପଛକୁ ଯିବେ? ସେଭ୍ ହୋଇନଥିବା ରେକର୍ଡିଂ ନଷ୍ଟ ହେବ।',
-                      [
-                        { text: 'ବାତିଲ୍', style: 'cancel' },
-                        {
-                          text: 'ହଁ',
-                          onPress: () => setCurrentSection('studentSelection'),
-                        },
-                      ],
-                    );
-                  }}
-                  style={[styles.navButton, styles.cancelNavButton]}
+                  onPress={recording ? stopRecording : startRecording}
+                  style={[
+                    styles.primaryButton,
+                    recording ? styles.recordingButton : styles.recordButton,
+                    (isLoading || loadingText) && styles.disabledButton,
+                  ]}
+                  disabled={isLoading || loadingText}
                 >
-                  <MaterialIcons name="arrow-back" size={18} color="#636e72" />
-                  <Text style={styles.cancelNavButtonText}>ପଛକୁ ଯାଆନ୍ତୁ</Text>
+                  <View style={styles.buttonContent}>
+                    <MaterialIcons
+                      name={recording ? 'stop-circle' : 'mic'}
+                      size={28}
+                      color="white"
+                    />
+                    <View style={styles.buttonTextContainer}>
+                      <Text style={styles.buttonMainText}>
+                        {recording
+                          ? 'ରେକର୍ଡିଂ ବନ୍ଦ କରନ୍ତୁ'
+                          : 'ରେକର୍ଡିଂ ଆରମ୍ଭ କରନ୍ତୁ'}
+                      </Text>
+                      <Text style={styles.buttonSubText}>
+                        {recording
+                          ? `${timeLeft} ସେକେଣ୍ଡ ବାକି ଅଛି`
+                          : '୩୦ ସେକେଣ୍ଡରେ ସମାପ୍ତ କରନ୍ତୁ'}
+                      </Text>
+                    </View>
+                  </View>
                 </TouchableOpacity>
 
-                {uploadStatus === 'success' && (
+                {/* Playback Controls - Only show if recording exists */}
+                {filePath && !recording && (
+                  <View style={styles.playbackSection}>
+                    <Text style={styles.playbackTitle}>
+                      ରେକର୍ଡିଂ ପରୀକ୍ଷା କରନ୍ତୁ:
+                    </Text>
+                    <View style={styles.playbackControls}>
+                      <TouchableOpacity
+                        onPress={playAudio}
+                        style={[styles.secondaryButton, styles.playButton]}
+                        disabled={playing || isLoading || loadingText}
+                      >
+                        <MaterialIcons
+                          name={playing ? 'pause' : 'play-arrow'}
+                          size={20}
+                          color="white"
+                        />
+                        <Text style={styles.secondaryButtonText}>
+                          {playing ? 'ବିରତ କରନ୍ତୁ' : 'ଶୁଣନ୍ତୁ'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={stopAudio}
+                        style={[styles.secondaryButton, styles.stopButton]}
+                        disabled={isLoading || loadingText}
+                      >
+                        <MaterialIcons name="stop" size={20} color="white" />
+                        <Text style={styles.secondaryButtonText}>
+                          ବନ୍ଦ କରନ୍ତୁ
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {/* Save Button */}
+                <TouchableOpacity
+                  onPress={handleManualSave}
+                  style={[
+                    styles.primaryButton,
+                    styles.saveButton,
+                    (!filePath ||
+                      recording ||
+                      playing ||
+                      isLoading ||
+                      loadingText ||
+                      !textId) &&
+                      styles.disabledButton,
+                  ]}
+                  disabled={
+                    !filePath ||
+                    recording ||
+                    playing ||
+                    isLoading ||
+                    loadingText ||
+                    !textId
+                  }
+                >
+                  <View style={styles.buttonContent}>
+                    <MaterialIcons
+                      name="cloud-upload"
+                      size={24}
+                      color="white"
+                    />
+                    <View style={styles.buttonTextContainer}>
+                      <Text style={styles.buttonMainText}>
+                        {isLoading ? 'ସେଭ୍ ହେଉଛି...' : 'ସେଭ୍ କରନ୍ତୁ'}
+                      </Text>
+                      <Text style={styles.buttonSubText}>
+                        ସର୍ଭରକୁ ଅପଲୋଡ୍ କରନ୍ତୁ
+                      </Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Upload Status */}
+                {isLoading && (
+                  <View style={styles.uploadStatus}>
+                    <ActivityIndicator size="small" color="#4ECDC4" />
+                    <Text style={styles.uploadStatusText}>
+                      {uploadStatus === 'uploading'
+                        ? 'ଅପଲୋଡ୍ ହେଉଛି...'
+                        : 'ପ୍ରକ୍ରିୟା କରୁଛି...'}
+                    </Text>
+                  </View>
+                )}
+
+                {uploadStatus === 'success' && audioUrl && (
+                  <View style={styles.successMessage}>
+                    <MaterialIcons
+                      name="check-circle"
+                      size={20}
+                      color="#00b894"
+                    />
+                    <Text style={styles.successText}>
+                      ସଫଳତାର ସହ ରେକର୍ଡିଂ ସେଭ୍ ହୋଇଛି!
+                    </Text>
+                  </View>
+                )}
+
+                {/* Navigation Buttons */}
+                <View style={styles.navigationButtons}>
                   <TouchableOpacity
                     onPress={() => {
-                      setCompletedStudents(prev => [
-                        ...prev,
-                        selectedStudentRoll.toString(),
-                      ]);
-                      setCurrentSection('studentSelection');
+                      Alert.alert(
+                        'ପଛକୁ ଯାଆନ୍ତୁ',
+                        'ଆପଣ ନିଶ୍ଚିତ କି ପଛକୁ ଯିବେ? ସେଭ୍ ହୋଇନଥିବା ରେକର୍ଡିଂ ନଷ୍ଟ ହେବ।',
+                        [
+                          { text: 'ବାତିଲ୍', style: 'cancel' },
+                          {
+                            text: 'ହଁ',
+                            onPress: () =>
+                              setCurrentSection('studentSelection'),
+                          },
+                        ],
+                      );
                     }}
-                    style={[styles.navButton, styles.completeNavButton]}
+                    style={[styles.navButton, styles.cancelNavButton]}
                   >
-                    <MaterialIcons name="check" size={18} color="white" />
-                    <Text style={styles.completeNavButtonText}>
-                      ସମାପ୍ତ କରନ୍ତୁ
-                    </Text>
+                    <MaterialIcons
+                      name="arrow-back"
+                      size={18}
+                      color="#636e72"
+                    />
+                    <Text style={styles.cancelNavButtonText}>ପଛକୁ ଯାଆନ୍ତୁ</Text>
                   </TouchableOpacity>
-                )}
+
+                  {uploadStatus === 'success' && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        setCompletedStudents(prev => [
+                          ...prev,
+                          selectedStudentRoll.toString(),
+                        ]);
+                        setCurrentSection('studentSelection');
+                      }}
+                      style={[styles.navButton, styles.completeNavButton]}
+                    >
+                      <MaterialIcons name="check" size={18} color="white" />
+                      <Text style={styles.completeNavButtonText}>
+                        ସମାପ୍ତ କରନ୍ତୁ
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
             </View>
-          </View>
+          )}
         </ScrollView>
       </View>
     );
+  };
+
+  // Add this function near your other functions
+  const refreshStudentData = async () => {
+    if (selectedClass && selectedSchool) {
+      console.log('Refreshing student data...');
+      try {
+        // Show loading state
+        setIsLoadingData(true);
+
+        // Fetch updated data from server
+        await fetchStudents(selectedClass, selectedSchool);
+
+        console.log('Student data refreshed successfully');
+      } catch (error) {
+        console.error('Error refreshing student data:', error);
+        // Even if refresh fails, local state is already updated
+      } finally {
+        setIsLoadingData(false);
+      }
+    }
   };
   const handleManualSave = async () => {
     if (!filePath) {
@@ -1877,26 +2166,48 @@ const AssessmentFlow = ({ navigation, user }) => {
         setUploadStatus('success');
         setAudioUrl(uploadResult.url);
 
+        const body = {
+          coordinatorId: 'COORD001',
+          studentId: selectedStudentId,
+          rollNumber: selectedStudentRoll,
+          class: selectedClass,
+          udiseCode: selectedUdiseCode,
+          school: selectedSchool,
+          clusterCode: selectedClusterCode,
+          cluster: selectedCluster,
+          blockCode: selectedBlockCode,
+          block: selectedBlock,
+          districtCode: selectedDistrictCode,
+          district: selectedDistrict,
+          academicSession: '2025-2026',
+          textId: textId,
+          textArr: textData?.textArr || [],
+          audioUrl: uploadResult.url,
+          audioDuration: 45,
+        };
+
+        const response = await API.post(`saveOrf`, body);
+        console.log('response------->', response, response.status);
+        if (response.status === 201) {
+          Alert.alert('Success', 'Recording saved and uploaded successfully!', [
+            {
+              text: 'OK',
+              onPress: async () => {
+                setCurrentSection('studentSelection');
+                await refreshStudentData();
+                setFilePath('');
+                setSoundObj(null);
+                setPlaying(false);
+                setWordStatus({});
+                setCurrentWordIndex(-1);
+                setUploadStatus('idle');
+                setAudioUrl('');
+              },
+            },
+          ]);
+        }
         // Mark student as completed
         setCompletedStudents(prev => [...prev, selectedStudentRoll.toString()]);
-
-        Alert.alert('Success', 'Recording saved and uploaded successfully!', [
-          {
-            text: 'OK',
-            onPress: () => {
-              // Navigate back to student selection WITHOUT clearing form data
-              setCurrentSection('studentSelection');
-              // Clear only assessment-related states
-              setFilePath('');
-              setSoundObj(null);
-              setPlaying(false);
-              setWordStatus({});
-              setCurrentWordIndex(-1);
-              setUploadStatus('idle');
-              setAudioUrl('');
-            },
-          },
-        ]);
       } else {
         setUploadStatus('error');
         Alert.alert(
@@ -2031,13 +2342,85 @@ const styles = StyleSheet.create({
   addButtonArrow: {
     marginLeft: 10,
   },
-  modalContentNew: {
-    backgroundColor: '#fff',
-    width: '90%',
-    borderRadius: 20,
-    padding: 25,
+
+  // ... existing styles ...
+
+  // Gender Selection Styles
+  genderContainer: {
+    marginTop: 20,
+    marginBottom: 15,
+    width: '100%',
+  },
+  genderLabel: {
+    fontSize: 14,
+    color: '#555',
+    marginBottom: 10,
+    fontWeight: '500',
+  },
+  genderOptionsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  genderOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1.5,
+    borderColor: '#e9ecef',
+  },
+  genderOptionSelected: {
+    backgroundColor: '#f0f7ff',
+    borderColor: '#4a6fa5',
+  },
+  genderRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#ddd',
+    marginRight: 10,
+    justifyContent: 'center',
     alignItems: 'center',
   },
+  genderRadioSelected: {
+    borderColor: '#4a6fa5',
+  },
+  genderRadioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#4a6fa5',
+  },
+  genderOptionText: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 8,
+    fontWeight: '500',
+  },
+  genderOptionTextSelected: {
+    color: '#4a6fa5',
+    fontWeight: '600',
+  },
+
+  // Update modal content height to accommodate gender selection
+  modalContentNew: {
+    width: '85%',
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    maxHeight: '75%',
+  },
+
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2133,6 +2516,55 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 15,
     paddingHorizontal: 5,
+  },
+  // Add to your StyleSheet
+  pendingStudentCard: {
+    backgroundColor: '#FFF9E6',
+    borderColor: '#FFC107',
+  },
+
+  pendingRollBadge: {
+    backgroundColor: '#FFC107',
+  },
+
+  pendingStatus: {
+    alignItems: 'center',
+  },
+
+  pendingText: {
+    fontSize: 10,
+    color: '#FF9800',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+
+  studentMeta: {
+    flexDirection: 'row',
+    marginTop: 2,
+    gap: 10,
+  },
+
+  assessmentScore: {
+    fontSize: 11,
+    color: '#2196F3',
+    fontWeight: '500',
+  },
+
+  // Update existing styles for better spacing
+  studentInfo: {
+    marginLeft: 15,
+    flex: 1,
+  },
+
+  studentName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+
+  studentId: {
+    fontSize: 12,
+    color: '#666',
   },
   listTitle: {
     fontSize: 18,
@@ -3125,7 +3557,133 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.5,
   },
+  wordsGridContainer: {
+    marginBottom: 20,
+  },
 
+  wordsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 20,
+  },
+
+  wordBox: {
+    width: (width - 80) / 4, // Adjust based on screen width
+    height: 80,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    borderWidth: 2,
+    borderColor: '#dfe6e9',
+    position: 'relative',
+    marginBottom: 10,
+  },
+
+  activeWordBox: {
+    backgroundColor: '#74b9ff',
+    borderColor: '#0984e3',
+    transform: [{ scale: 1.05 }],
+  },
+
+  correctWordBox: {
+    backgroundColor: '#d4edda',
+    borderColor: '#00b894',
+  },
+
+  wrongWordBox: {
+    backgroundColor: '#f8d7da',
+    borderColor: '#e17055',
+  },
+
+  wordText: {
+    fontSize: isTablet ? 28 : 24,
+    fontWeight: '600',
+    color: '#2d3436',
+    textAlign: 'center',
+  },
+
+  activeWordText: {
+    color: 'white',
+    fontWeight: '700',
+  },
+
+  correctWordText: {
+    color: '#00b894',
+  },
+
+  wrongWordText: {
+    color: '#e17055',
+    textDecorationLine: 'line-through',
+  },
+
+  statusIndicator: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    backgroundColor: 'white',
+    borderRadius: 10,
+    width: 16,
+    height: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+
+  wordNumber: {
+    position: 'absolute',
+    bottom: 5,
+    right: 5,
+    fontSize: 10,
+    color: '#666',
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+
+  sentenceContainer: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+  },
+
+  sentenceTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4a6fa5',
+    marginBottom: 10,
+  },
+
+  sentenceTextContainer: {
+    gap: 8,
+  },
+
+  sentenceText: {
+    fontSize: 16,
+    color: '#2D3748',
+    lineHeight: 24,
+  },
+
+  // Update passage subtitle
+  passageSubtitle: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 20,
+    textAlign: 'center',
+    fontWeight: '500',
+    lineHeight: 22,
+  },
   // Add keyframes for pulse animation (if needed)
   '@keyframes pulse': {
     '0%': {

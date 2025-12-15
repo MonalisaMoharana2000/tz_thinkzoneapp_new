@@ -17,7 +17,7 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 const { width, height } = Dimensions.get('window');
 const isTablet = width >= 768;
 
-const WelcomeScreen = ({ navigation }) => {
+const WelcomeScreen = ({ navigation, route, authContext }) => {
   const appState = useRef(AppState.currentState);
 
   useEffect(() => {
@@ -64,6 +64,24 @@ const WelcomeScreen = ({ navigation }) => {
       subscription.remove();
     };
   }, []);
+
+  const handleLogout = () => {
+    Alert.alert('Logout', 'Are you sure you want to logout?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Logout',
+        onPress: async () => {
+          try {
+            await authContext.signOut();
+            navigation.replace('Login');
+          } catch (error) {
+            Alert.alert('Error', 'Failed to logout. Please try again.');
+          }
+        },
+        style: 'destructive',
+      },
+    ]);
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -173,16 +191,28 @@ const WelcomeScreen = ({ navigation }) => {
             <View style={styles.instructionItem}>
               <View style={styles.instructionBullet} />
               <Text style={styles.instructionText}>
-                ପ୍ରତ୍ୟେକ ରେକର୍ଡିଂ 25 ସେକେଣ୍ଡର
+                ପ୍ରତ୍ୟେକ ରେକର୍ଡିଂ 30 ସେକେଣ୍ଡର
               </Text>
             </View>
           </View>
         </View>
       </ScrollView>
 
-      {/* Footer */}
+      {/* Footer with Logout Button */}
       <View style={styles.footer}>
         <Text style={styles.footerText}>ଓଡ଼ିଶା ସରକାର | ଶିକ୍ଷା ବିଭାଗ</Text>
+
+        {/* Logout Button */}
+        <TouchableOpacity
+          style={styles.logoutButton}
+          onPress={handleLogout}
+          activeOpacity={0.7}
+        >
+          <View style={styles.logoutButtonContent}>
+            <MaterialIcons name="logout" size={18} color="#fff" />
+            <Text style={styles.logoutButtonText}>ଲଗ୍‌ଆଉଟ୍</Text>
+          </View>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -197,7 +227,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 100,
+    paddingBottom: 120, // Increased to accommodate the footer with button
   },
   header: {
     alignItems: 'center',
@@ -252,24 +282,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     maxWidth: '80%',
     lineHeight: 24,
-  },
-  keyPoints: {
-    backgroundColor: '#F8F9FA',
-    marginHorizontal: 20,
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 30,
-  },
-  point: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 8,
-  },
-  pointText: {
-    fontSize: isTablet ? 16 : 14,
-    color: '#444444',
-    marginLeft: 12,
-    flex: 1,
   },
   actionSection: {
     paddingHorizontal: 20,
@@ -377,6 +389,7 @@ const styles = StyleSheet.create({
     flex: 1,
     lineHeight: 20,
   },
+  // Updated Footer with Logout Button
   footer: {
     position: 'absolute',
     bottom: 0,
@@ -392,6 +405,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888888',
     fontWeight: '500',
+    marginBottom: 10,
+  },
+  logoutButton: {
+    backgroundColor: '#FF6B35',
+    borderRadius: 25,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  logoutButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
   },
 });
 

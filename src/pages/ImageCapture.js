@@ -13,9 +13,12 @@ import {
   Platform,
   PermissionsAndroid,
   BackHandler,
+  Modal,
+  Animated,
+  Easing,
+  RefreshControl,
 } from 'react-native';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
-import RNFS from 'react-native-fs';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import axios from 'axios';
 import DocumentScanner from 'react-native-document-scanner-plugin';
@@ -31,11 +34,25 @@ const ImageCapture = ({ navigation }) => {
   const [hasCameraPermission, setHasCameraPermission] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [backPressCount, setBackPressCount] = useState(0);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [ocrData, setOcrData] = useState(null);
+  const [processingStep, setProcessingStep] = useState('');
+  const [showResults, setShowResults] = useState(false);
+  const [imgId, setImgId] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [progressAnimation] = useState(new Animated.Value(0));
+  const [processingProgress, setProcessingProgress] = useState(0);
+  const [selectedTab, setSelectedTab] = useState('table'); // 'table' or 'overview'
 
   // Handle back button press
-
   const handleBackPress = useCallback(() => {
     if (isScanning) {
+      return true;
+    }
+
+    if (showResults) {
+      setShowResults(false);
+      setOcrData(null);
       return true;
     }
 
@@ -51,7 +68,14 @@ const ImageCapture = ({ navigation }) => {
 
     navigation.navigate('Welcome');
     return true;
-  }, [isScanning, showPreview, capturedImage, imageUrl, navigation]);
+  }, [
+    isScanning,
+    showPreview,
+    capturedImage,
+    imageUrl,
+    showResults,
+    navigation,
+  ]);
 
   useEffect(() => {
     const backHandler = BackHandler.addEventListener(
@@ -59,22 +83,9 @@ const ImageCapture = ({ navigation }) => {
       handleBackPress,
     );
 
-    return () => {
-      backHandler.remove();
-      setBackPressCount(0);
-    };
+    return () => backHandler.remove();
   }, [handleBackPress]);
-  useEffect(() => {
-    const backHandler = BackHandler.addEventListener(
-      'hardwareBackPress',
-      handleBackPress,
-    );
 
-    return () => {
-      backHandler.remove();
-      setBackPressCount(0);
-    };
-  }, [handleBackPress]);
   const requestCameraPermission = async () => {
     if (Platform.OS !== 'android') {
       setHasCameraPermission(true);
@@ -102,9 +113,134 @@ const ImageCapture = ({ navigation }) => {
   };
 
   useEffect(() => {
-    // Check camera permission on mount
     requestCameraPermission();
   }, []);
+
+  const simulateProcessing = () => {
+    setProcessingProgress(0);
+
+    Animated.timing(progressAnimation, {
+      toValue: 1,
+      duration: 30000, // Increased to 30 seconds
+      easing: Easing.linear,
+      useNativeDriver: false,
+    }).start();
+
+    const steps = [
+      'Uploading image...',
+      'Initializing OCR engine...',
+      'Extracting text from image...',
+      'Processing Oriya script...',
+      'Analyzing competency data...',
+      'Structuring assessment results...',
+      'Finalizing...',
+    ];
+
+    steps.forEach((step, index) => {
+      setTimeout(() => {
+        setProcessingStep(step);
+        setProcessingProgress(((index + 1) / steps.length) * 100);
+      }, index * 4000); // Slower progression - 4 seconds per step
+    });
+  };
+
+  const extractGrades = async url => {
+    setIsProcessing(true);
+    setProcessingStep('Starting OCR extraction...');
+
+    // Generate unique img_id for this request
+    const imgId = `img_${Date.now()}`;
+    setImgId(imgId);
+
+    simulateProcessing();
+
+    try {
+      const body = {
+        image_url: url,
+        img_id: imgId, // Use generated img_id
+      };
+
+      console.log('Sending OCR request with body:', body);
+
+      // Single API call - the response contains the data directly
+      const extractResponse = await axios.post(
+        'https://ocr.thinkzone.in.net/extract-grades',
+        body,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 90000,
+        },
+      );
+
+      console.log('OCR Response received:', extractResponse.data);
+
+      if (
+        extractResponse.data?.table &&
+        Array.isArray(extractResponse.data.table)
+      ) {
+        const transformedData = {
+          imgId: imgId,
+          imgUrl: url,
+          mlResponse: extractResponse.data.table,
+          meta: {
+            tokens_total: extractResponse.data.tokens_total,
+            mongo_inserted_count: extractResponse.data.mongo_inserted_count,
+            mongo_error: extractResponse.data.mongo_error,
+          },
+        };
+
+        console.log('Transformed data:', transformedData);
+
+        setOcrData(transformedData);
+
+        setTimeout(() => {
+          setIsProcessing(false);
+          setShowResults(true);
+          setProcessingStep('');
+        }, 1500);
+      } else {
+        throw new Error('No table data found in response');
+      }
+    } catch (error) {
+      console.error('OCR processing error:', error);
+
+      // More detailed error logging
+      if (error.response) {
+        console.error('Error response status:', error.response.status);
+        console.error('Error response data:', error.response.data);
+      } else if (error.request) {
+        console.error('No response received:', error.request);
+      } else {
+        console.error('Error setting up request:', error.message);
+      }
+
+      setIsProcessing(false);
+
+      // More specific error messages
+      let errorMessage =
+        'Failed to extract data from image. Please try again with a clearer image.';
+
+      if (error.code === 'ECONNABORTED') {
+        errorMessage =
+          'Request timeout. The server is taking too long to respond. Please try again.';
+      } else if (error.response?.status === 500) {
+        errorMessage =
+          'Server error. Please try again later or contact support.';
+      } else if (error.response?.status === 400) {
+        errorMessage =
+          'Invalid request. Please check the image URL and try again.';
+      } else if (!error.response && error.request) {
+        errorMessage =
+          'Network error. Please check your internet connection and try again.';
+      }
+
+      Alert.alert('Processing Error', errorMessage, [
+        { text: 'OK', onPress: () => resetToInitialView() },
+      ]);
+    }
+  };
 
   const openCamera = async () => {
     const hasPermission = await requestCameraPermission();
@@ -160,7 +296,6 @@ const ImageCapture = ({ navigation }) => {
         setIsScanning(false);
       } else {
         setIsScanning(false);
-        // User cancelled scanning
       }
     } catch (error) {
       console.error('Document scan error:', error);
@@ -210,15 +345,13 @@ const ImageCapture = ({ navigation }) => {
     const timestamp = Date.now();
     const randomId = Math.random().toString(36).substring(7);
 
-    // Extract file extension from URI
-    let fileExtension = 'jpg'; // default
+    let fileExtension = 'jpg';
     const uriParts = fileUri.split('.');
     if (uriParts.length > 1) {
       fileExtension = uriParts[uriParts.length - 1].toLowerCase();
-      // Ensure valid image extension
       const validExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
       if (!validExtensions.includes(fileExtension)) {
-        fileExtension = 'jpg'; // fallback to jpg
+        fileExtension = 'jpg';
       }
     }
 
@@ -235,12 +368,9 @@ const ImageCapture = ({ navigation }) => {
     setUploadProgress(0);
 
     try {
-      // Generate unique filename
       const fileName = generateUniqueFileName(capturedImage);
 
-      // Determine MIME type based on file extension
-      let mimeType = 'image/jpeg'; // default
-
+      let mimeType = 'image/jpeg';
       if (fileName.endsWith('.png')) {
         mimeType = 'image/png';
       } else if (fileName.endsWith('.gif')) {
@@ -251,7 +381,6 @@ const ImageCapture = ({ navigation }) => {
         mimeType = 'image/webp';
       }
 
-      // Create FormData
       const formData = new FormData();
 
       let actualUri = capturedImage;
@@ -268,13 +397,6 @@ const ImageCapture = ({ navigation }) => {
         name: fileName,
       });
 
-      console.log('Uploading image file:', {
-        uri: actualUri,
-        type: mimeType,
-        name: fileName,
-      });
-
-      // Call your API - using your existing endpoint pattern
       const response = await axios.post(
         `https://thinkzone.co/cloud-storage/uploadFile/${fileName}`,
         formData,
@@ -294,20 +416,23 @@ const ImageCapture = ({ navigation }) => {
         },
       );
 
-      console.log('Upload response-------->', response.status, response.data);
-
       if (response?.status === 200 && response?.data?.url) {
-        setUploadProgress(100);
         const uploadedUrl = response.data.url;
         setImageUrl(uploadedUrl);
-
-        // Hide captured image preview and show only uploaded image
-        setShowPreview(false);
-        setCapturedImage(null);
+        setUploadProgress(100);
 
         Alert.alert('Success!', 'Image uploaded successfully', [
           {
-            text: 'OK',
+            text: 'Process Image',
+            onPress: () => {
+              setShowPreview(false);
+              extractGrades(uploadedUrl);
+            },
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: resetToInitialView,
           },
         ]);
 
@@ -325,9 +450,6 @@ const ImageCapture = ({ navigation }) => {
       let errorMessage = 'Failed to upload image. Please try again.';
 
       if (error.response) {
-        console.error('Error response data:', error.response.data);
-        console.error('Error response status:', error.response.status);
-
         if (error.response.status === 413) {
           errorMessage =
             'Image file is too large. Please try with a smaller image.';
@@ -339,11 +461,9 @@ const ImageCapture = ({ navigation }) => {
           errorMessage = 'Server error. Please try again later.';
         }
       } else if (error.request) {
-        console.error('No response received:', error.request);
         errorMessage =
           'No response from server. Please check your internet connection.';
       } else {
-        console.error('Error setting up request:', error.message);
         errorMessage = error.message || 'Failed to upload image.';
       }
 
@@ -363,6 +483,8 @@ const ImageCapture = ({ navigation }) => {
     setCapturedImage(null);
     setImageUrl(null);
     setShowPreview(false);
+    setOcrData(null);
+    setShowResults(false);
   };
 
   const resetToInitialView = () => {
@@ -370,10 +492,17 @@ const ImageCapture = ({ navigation }) => {
     setImageUrl(null);
     setShowPreview(false);
     setUploadProgress(0);
+    setOcrData(null);
+    setShowResults(false);
+    setIsProcessing(false);
+    setImgId('');
   };
 
   const navigateBack = () => {
-    if (showPreview && capturedImage && !imageUrl) {
+    if (showResults) {
+      setShowResults(false);
+      setOcrData(null);
+    } else if (showPreview && capturedImage && !imageUrl) {
       retakePicture();
     } else if (imageUrl) {
       resetToInitialView();
@@ -382,7 +511,91 @@ const ImageCapture = ({ navigation }) => {
     }
   };
 
-  // Show loading while checking permissions
+  const renderSymbol = symbol => {
+    switch (symbol) {
+      case '+':
+        return (
+          <View style={[styles.symbol, styles.plusSymbol]}>
+            <Text style={styles.symbolText}>+</Text>
+          </View>
+        );
+      case '▲':
+        return (
+          <View style={[styles.symbol, styles.triangleSymbol]}>
+            <Text style={styles.symbolText}>▲</Text>
+          </View>
+        );
+      case '*':
+        return (
+          <View style={[styles.symbol, styles.starSymbol]}>
+            <Text style={styles.symbolText}>*</Text>
+          </View>
+        );
+      default:
+        return <Text style={styles.emptySymbol}>-</Text>;
+    }
+  };
+
+  const calculateSummary = () => {
+    if (!ocrData?.mlResponse)
+      return { total: 0, plus: 0, triangle: 0, star: 0 };
+
+    let total = 0;
+    let plus = 0;
+    let triangle = 0;
+    let star = 0;
+
+    ocrData.mlResponse.forEach(row => {
+      for (let i = 1; i <= 30; i++) {
+        const key = i.toString().split('').join('');
+        const value = row[key];
+        if (value === '+') plus++;
+        if (value === '▲') triangle++;
+        if (value === '*') star++;
+        if (value && value !== ':---') total++;
+      }
+    });
+
+    return { total, plus, triangle, star };
+  };
+
+  const getCompetencyData = () => {
+    if (!ocrData?.mlResponse) return [];
+
+    const competencies = [];
+    let currentCompetency = null;
+
+    ocrData.mlResponse.forEach(row => {
+      if (row['ଦକ୍ଷତା'] && row['ଦକ୍ଷତା'].includes('**')) {
+        if (currentCompetency) {
+          competencies.push(currentCompetency);
+        }
+        currentCompetency = {
+          name: row['ଦକ୍ଷତା'].replace(/\*\*/g, ''),
+          indicators: [],
+        };
+      } else if (
+        row['ସୂଚକାଙ୍କ'] &&
+        row['ସୂଚକାଙ୍କ'] !== '' &&
+        currentCompetency
+      ) {
+        currentCompetency.indicators.push({
+          indicator: row['ସୂଚକାଙ୍କ'],
+          scores: Object.keys(row)
+            .filter(key => key.match(/^[୦-୯]+$/))
+            .map(key => ({ student: key, score: row[key] }))
+            .filter(item => item.score && item.score !== ':---'),
+        });
+      }
+    });
+
+    if (currentCompetency) {
+      competencies.push(currentCompetency);
+    }
+
+    return competencies;
+  };
+
   if (Platform.OS === 'android' && hasCameraPermission === null) {
     return (
       <View style={styles.centerContainer}>
@@ -392,7 +605,6 @@ const ImageCapture = ({ navigation }) => {
     );
   }
 
-  // Show scanning overlay
   if (isScanning) {
     return (
       <View style={styles.scanningContainer}>
@@ -411,10 +623,301 @@ const ImageCapture = ({ navigation }) => {
     );
   }
 
+  if (isProcessing) {
+    const progressWidth = progressAnimation.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0%', '100%'],
+    });
+
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.processingContainer}>
+          <View style={styles.processingHeader}>
+            <Icon name="auto-awesome" size={60} color="#5856D6" />
+            <Text style={styles.processingTitle}>Processing Image</Text>
+            <Text style={styles.processingSubtitle}>
+              Extracting and analyzing competency data...
+            </Text>
+          </View>
+
+          <View style={styles.processingContent}>
+            <View style={styles.processingStepContainer}>
+              <ActivityIndicator size="large" color="#5856D6" />
+              <Text style={styles.processingStepText}>{processingStep}</Text>
+            </View>
+
+            <View style={styles.processingProgressContainer}>
+              <View style={styles.progressBarBackground}>
+                <Animated.View
+                  style={[
+                    styles.processingProgressFill,
+                    { width: progressWidth },
+                  ]}
+                />
+              </View>
+              <Text style={styles.progressPercentage}>
+                {Math.round(processingProgress)}%
+              </Text>
+            </View>
+
+            <View style={styles.processingAnimation}>
+              <Icon name="document-scanner" size={40} color="#8E8E93" />
+              <Icon name="arrow-forward" size={24} color="#8E8E93" />
+              <Icon name="text-fields" size={40} color="#8E8E93" />
+              <Icon name="arrow-forward" size={24} color="#8E8E93" />
+              <Icon name="analytics" size={40} color="#8E8E93" />
+            </View>
+
+            <Text style={styles.processingTip}>
+              Tip: Ensure the image is well-lit and the text is clear for best
+              results
+            </Text>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (showResults && ocrData) {
+    const summary = calculateSummary();
+    const competencies = getCompetencyData();
+
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => setShowResults(false)}
+          >
+            <Icon name="arrow-back" size={24} color="#1C1C1E" />
+          </TouchableOpacity>
+          <Text style={styles.title}>OCR Results</Text>
+          <View style={styles.headerPlaceholder} />
+        </View>
+
+        <ScrollView
+          contentContainerStyle={styles.resultsContainer}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                setTimeout(() => setRefreshing(false), 1000);
+              }}
+              colors={['#5856D6']}
+            />
+          }
+        >
+          {/* Summary Card */}
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryHeader}>
+              <Icon name="assessment" size={24} color="#5856D6" />
+              <Text style={styles.summaryTitle}>Assessment Summary</Text>
+            </View>
+
+            <View style={styles.summaryStats}>
+              <View style={styles.statItem}>
+                <Text style={styles.statNumber}>{summary.total}</Text>
+                <Text style={styles.statLabel}>Total Scores</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <View style={styles.symbolCountRow}>
+                  {renderSymbol('+')}
+                  <Text style={[styles.statNumber, { color: '#34C759' }]}>
+                    {summary.plus}
+                  </Text>
+                </View>
+                <Text style={styles.statLabel}>Excellent</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <View style={styles.symbolCountRow}>
+                  {renderSymbol('▲')}
+                  <Text style={[styles.statNumber, { color: '#FF9500' }]}>
+                    {summary.triangle}
+                  </Text>
+                </View>
+                <Text style={styles.statLabel}>Good</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <View style={styles.symbolCountRow}>
+                  {renderSymbol('*')}
+                  <Text style={[styles.statNumber, { color: '#FF3B30' }]}>
+                    {summary.star}
+                  </Text>
+                </View>
+                <Text style={styles.statLabel}>Needs Improvement</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Tab Navigation */}
+          <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={[
+                styles.tabButton,
+                selectedTab === 'table' && styles.activeTab,
+              ]}
+              onPress={() => setSelectedTab('table')}
+            >
+              <Icon
+                name="grid-on"
+                size={20}
+                color={selectedTab === 'table' ? '#5856D6' : '#8E8E93'}
+              />
+              <Text
+                style={[
+                  styles.tabText,
+                  selectedTab === 'table' && styles.activeTabText,
+                ]}
+              >
+                Data Table
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.tabButton,
+                selectedTab === 'overview' && styles.activeTab,
+              ]}
+              onPress={() => setSelectedTab('overview')}
+            >
+              <Icon
+                name="pie-chart"
+                size={20}
+                color={selectedTab === 'overview' ? '#5856D6' : '#8E8E93'}
+              />
+              <Text
+                style={[
+                  styles.tabText,
+                  selectedTab === 'overview' && styles.activeTabText,
+                ]}
+              >
+                Competency Overview
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {selectedTab === 'table' ? (
+            <View style={styles.tableContainer}>
+              <View style={styles.tableHeader}>
+                <Text style={styles.tableHeaderText}>Full Assessment Data</Text>
+                <Text style={styles.tableSubHeaderText}>
+                  Student scores across all competencies
+                </Text>
+              </View>
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View>
+                  <View style={styles.tableRow}>
+                    <View style={[styles.tableCell, styles.firstColumn]}>
+                      <Text style={styles.columnHeader}>Student</Text>
+                    </View>
+                    {Array.from({ length: 30 }, (_, i) => i + 1).map(num => (
+                      <View key={num} style={styles.tableCell}>
+                        <Text style={styles.columnHeader}>{num}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {ocrData.mlResponse
+                    .filter(row => row['ସୂଚକାଙ୍କ'] && row['ସୂଚକାଙ୍କ'] !== '')
+                    .map((row, rowIndex) => (
+                      <View key={rowIndex} style={styles.tableRow}>
+                        <View style={[styles.tableCell, styles.firstColumn]}>
+                          <Text style={styles.indicatorText} numberOfLines={2}>
+                            {row['ସୂଚକାଙ୍କ'].slice(0, 20)}
+                          </Text>
+                        </View>
+                        {Array.from({ length: 30 }, (_, i) => i + 1).map(
+                          num => {
+                            const key = num.toString().split('').join('');
+                            const score = row[key];
+                            return (
+                              <View key={num} style={styles.tableCell}>
+                                {renderSymbol(score)}
+                              </View>
+                            );
+                          },
+                        )}
+                      </View>
+                    ))}
+                </View>
+              </ScrollView>
+            </View>
+          ) : (
+            <View style={styles.competencyContainer}>
+              {competencies.map((competency, index) => (
+                <View key={index} style={styles.competencyCard}>
+                  <View style={styles.competencyHeader}>
+                    <View style={styles.competencyIcon}>
+                      <Icon name="school" size={20} color="#5856D6" />
+                    </View>
+                    <Text style={styles.competencyName}>{competency.name}</Text>
+                  </View>
+
+                  {competency.indicators.map((indicator, idx) => (
+                    <View key={idx} style={styles.indicatorItem}>
+                      <Text style={styles.indicatorTitle}>
+                        {indicator.indicator}
+                      </Text>
+                      <View style={styles.indicatorScores}>
+                        <Text style={styles.scoreCount}>
+                          {indicator.scores.length} students assessed
+                        </Text>
+                        <View style={styles.scoreSymbols}>
+                          {indicator.scores
+                            .slice(0, 3)
+                            .map((score, scoreIdx) => (
+                              <View key={scoreIdx} style={styles.miniSymbol}>
+                                {renderSymbol(score.score)}
+                              </View>
+                            ))}
+                          {indicator.scores.length > 3 && (
+                            <Text style={styles.moreText}>
+                              +{indicator.scores.length - 3}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Action Buttons */}
+          <View style={styles.resultsActions}>
+            <TouchableOpacity
+              style={[styles.resultsButton, styles.shareButton]}
+              onPress={() => {
+                Alert.alert('Share', 'Results shared successfully!');
+              }}
+            >
+              <Icon name="share" size={20} color="white" />
+              <Text style={styles.resultsButtonText}>Share Results</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.resultsButton, styles.newButton]}
+              onPress={resetToInitialView}
+            >
+              <Icon name="add-a-photo" size={20} color="#5856D6" />
+              <Text style={[styles.resultsButtonText, { color: '#5856D6' }]}>
+                New Image
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
-        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={navigateBack}>
             <Icon name="arrow-back" size={24} color="#1C1C1E" />
@@ -423,11 +926,8 @@ const ImageCapture = ({ navigation }) => {
           <View style={styles.headerPlaceholder} />
         </View>
 
-        {/* Main Content */}
         <View style={styles.mainContent}>
-          {/* Show captured image preview only if no upload has been successful */}
           {showPreview && capturedImage && !imageUrl ? (
-            // Preview Mode (Before Upload)
             <View style={styles.previewContainer}>
               <View style={styles.imagePreviewWrapper}>
                 <Image
@@ -456,27 +956,12 @@ const ImageCapture = ({ navigation }) => {
                     <Icon name="cloud-upload" size={24} color="white" />
                   )}
                   <Text style={styles.actionButtonText}>
-                    {isUploading ? 'Uploading...' : 'Upload Image'}
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.captureNewButton]}
-                  onPress={() => {
-                    retakePicture();
-                    openCamera();
-                  }}
-                  disabled={isUploading}
-                >
-                  <Icon name="camera-alt" size={24} color="#007AFF" />
-                  <Text style={[styles.actionButtonText, { color: '#007AFF' }]}>
-                    Take New Photo
+                    {isUploading ? 'Uploading...' : 'Upload & Process'}
                   </Text>
                 </TouchableOpacity>
               </View>
             </View>
-          ) : imageUrl ? (
-            // Upload Successful View (Only show uploaded image)
+          ) : imageUrl && !isProcessing ? (
             <View style={styles.uploadSuccessContainer}>
               <View style={styles.successHeader}>
                 <Icon name="check-circle" size={32} color="#4CD964" />
@@ -484,81 +969,19 @@ const ImageCapture = ({ navigation }) => {
                   Image Uploaded Successfully!
                 </Text>
                 <Text style={styles.successSubtitle}>
-                  Your image has been uploaded to the cloud
+                  Ready for OCR processing
                 </Text>
               </View>
 
-              <View style={styles.uploadedImageWrapper}>
-                <Image
-                  source={{ uri: imageUrl }}
-                  style={styles.uploadedImage}
-                  resizeMode="contain"
-                />
-                <View style={styles.imageBadge}>
-                  <Icon name="cloud-done" size={16} color="white" />
-                  <Text style={styles.imageBadgeText}>Uploaded</Text>
-                </View>
-              </View>
-
-              <View style={styles.urlContainer}>
-                <View style={styles.urlHeader}>
-                  <Icon name="link" size={20} color="#007AFF" />
-                  <Text style={styles.urlTitle}>Image URL</Text>
-                </View>
-                <Text
-                  style={styles.urlText}
-                  numberOfLines={2}
-                  ellipsizeMode="middle"
-                >
-                  {imageUrl}
-                </Text>
-                <View style={styles.urlActions}>
-                  <TouchableOpacity
-                    style={[styles.urlButton, styles.copyButton]}
-                    onPress={() => {
-                      Alert.alert('Copied!', 'URL copied to clipboard');
-                    }}
-                  >
-                    <Icon name="content-copy" size={18} color="white" />
-                    <Text style={styles.urlButtonText}>Copy URL</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.urlButton, styles.shareButton]}
-                    onPress={() => {
-                      // Implement share functionality here
-                      Alert.alert('Share', 'Share functionality would go here');
-                    }}
-                  >
-                    <Icon name="share" size={18} color="white" />
-                    <Text style={styles.urlButtonText}>Share</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.successActions}>
-                <TouchableOpacity
-                  style={[styles.successButton, styles.newImageButton]}
-                  onPress={resetToInitialView}
-                >
-                  <Icon name="add-a-photo" size={24} color="#007AFF" />
-                  <Text
-                    style={[styles.successButtonText, { color: '#007AFF' }]}
-                  >
-                    Upload Another Image
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.successButton, styles.doneButton]}
-                  onPress={() => navigation.navigate('Welcome')}
-                >
-                  <Icon name="check" size={24} color="white" />
-                  <Text style={styles.successButtonText}>Done</Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.processButton]}
+                onPress={() => extractGrades(imageUrl)}
+              >
+                <Icon name="auto-awesome" size={24} color="white" />
+                <Text style={styles.actionButtonText}>Process with OCR</Text>
+              </TouchableOpacity>
             </View>
           ) : (
-            // Initial View (Camera/Gallery/Scan Options)
             <View style={styles.initialView}>
               <View style={styles.attendanceContent}>
                 <View style={styles.attendanceIllustration}>
@@ -567,23 +990,10 @@ const ImageCapture = ({ navigation }) => {
                 </View>
 
                 <Text style={styles.attendanceDescription}>
-                  ଶ୍ରେଣୀଗୃହ ପର୍ଯ୍ୟବେକ୍ଷଣକୁ ସ୍ୱାଗତ । ପର୍ଯ୍ୟବେକ୍ଷଣ ପ୍ରକ୍ରିୟା ଆରମ୍ଭ
-                  କରିବା ପୂର୍ବରୁ ଆପଣଙ୍କର ଉପସ୍ଥାନ ରେକର୍ଡ କରିବା ପାଇଁ ଦୟାକରି ଏକ
-                  ସେଲ୍ଫି ନିଅନ୍ତୁ ।
+                  Capture or select an image to extract competency assessment
+                  data
                 </Text>
 
-                {/* Selfie Button */}
-                {/* <TouchableOpacity
-                  style={[styles.primaryButton, styles.selfieButton]}
-                  onPress={openCamera}
-                >
-                  <Icon name="camera-alt" size={24} color="#fff" />
-                  <Text style={[styles.primaryButtonText, { lineHeight: 30 }]}>
-                    ସେଲ୍ଫି ନିଅନ୍ତୁ
-                  </Text>
-                </TouchableOpacity> */}
-
-                {/* Scan Document Button */}
                 <TouchableOpacity
                   style={[styles.primaryButton, styles.scanButton]}
                   onPress={scanDocument}
@@ -599,7 +1009,6 @@ const ImageCapture = ({ navigation }) => {
                   </Text>
                 </TouchableOpacity>
 
-                {/* Choose from Gallery Button */}
                 <TouchableOpacity
                   style={[styles.secondaryButton, styles.galleryButton]}
                   onPress={pickImageFromGallery}
@@ -612,16 +1021,6 @@ const ImageCapture = ({ navigation }) => {
                   </Text>
                 </TouchableOpacity>
 
-                {/* Info about scanning */}
-                <View style={styles.infoContainer}>
-                  <Icon name="info" size={18} color="#8E8E93" />
-                  <Text style={styles.infoText}>
-                    Use "Scan Document" for better quality document images with
-                    edge detection and perspective correction
-                  </Text>
-                </View>
-
-                {/* Go Back Button */}
                 <TouchableOpacity
                   style={styles.exitButton}
                   onPress={() => {
@@ -651,7 +1050,6 @@ const ImageCapture = ({ navigation }) => {
             </View>
           )}
 
-          {/* Progress Bar (shown only during upload and before success) */}
           {isUploading && !imageUrl && (
             <View style={styles.progressContainer}>
               <Text style={styles.progressLabel}>Uploading...</Text>
@@ -756,11 +1154,12 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  selfieButton: {
-    backgroundColor: '#007AFF',
-  },
   scanButton: {
     backgroundColor: '#5856D6',
+  },
+  processButton: {
+    backgroundColor: '#5856D6',
+    marginTop: 20,
   },
   primaryButtonText: {
     color: '#fff',
@@ -799,22 +1198,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  infoContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#F2F2F7',
-    padding: 16,
-    borderRadius: 12,
-    marginTop: 10,
-    marginBottom: 30,
-    gap: 12,
-  },
-  infoText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#8E8E93',
-    lineHeight: 20,
-  },
   exitButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -833,7 +1216,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  // Preview Mode Styles (Before Upload)
   previewContainer: {
     width: '100%',
   },
@@ -896,17 +1278,6 @@ const styles = StyleSheet.create({
   uploadButton: {
     backgroundColor: '#34C759',
   },
-  captureNewButton: {
-    backgroundColor: 'white',
-    borderWidth: 2,
-    borderColor: '#007AFF',
-  },
-  actionButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  // Progress Bar Styles
   progressContainer: {
     marginTop: 30,
     alignItems: 'center',
@@ -934,14 +1305,15 @@ const styles = StyleSheet.create({
     color: '#8E8E93',
     fontWeight: '600',
   },
-  // Upload Success View Styles
   uploadSuccessContainer: {
-    width: '100%',
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 40,
   },
   successHeader: {
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 40,
   },
   successTitle: {
     fontSize: 24,
@@ -956,145 +1328,11 @@ const styles = StyleSheet.create({
     color: '#8E8E93',
     textAlign: 'center',
   },
-  uploadedImageWrapper: {
-    width: '100%',
-    height: height * 0.35,
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 30,
-    position: 'relative',
-    backgroundColor: '#F2F2F7',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 12,
-      },
-      android: {
-        elevation: 8,
-      },
-    }),
-  },
-  uploadedImage: {
-    width: '100%',
-    height: '100%',
-  },
-  imageBadge: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(76, 217, 100, 0.9)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 6,
-  },
-  imageBadgeText: {
+  actionButtonText: {
     color: 'white',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  urlContainer: {
-    width: '100%',
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 30,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
-  },
-  urlHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 12,
-  },
-  urlTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1C1C1E',
-  },
-  urlText: {
-    fontSize: 14,
-    color: '#1C1C1E',
-    marginBottom: 20,
-    padding: 12,
-    backgroundColor: '#F2F2F7',
-    borderRadius: 8,
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-  },
-  urlActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  urlButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 8,
-    gap: 8,
-  },
-  copyButton: {
-    backgroundColor: '#007AFF',
-  },
-  shareButton: {
-    backgroundColor: '#5856D6',
-  },
-  urlButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  successActions: {
-    width: '100%',
-    gap: 16,
-  },
-  successButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 18,
-    borderRadius: 12,
-    gap: 12,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
-  },
-  newImageButton: {
-    backgroundColor: 'white',
-    borderWidth: 2,
-    borderColor: '#007AFF',
-  },
-  doneButton: {
-    backgroundColor: '#007AFF',
-  },
-  successButtonText: {
     fontSize: 16,
     fontWeight: '600',
   },
-  // Other Styles
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -1131,6 +1369,387 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   cancelScanText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Processing Styles
+  processingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#F8F9FA',
+  },
+  processingHeader: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  processingTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#1C1C1E',
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  processingSubtitle: {
+    fontSize: 16,
+    color: '#8E8E93',
+    textAlign: 'center',
+  },
+  processingContent: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  processingStepContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    padding: 20,
+    borderRadius: 16,
+    marginBottom: 30,
+    width: '100%',
+    gap: 15,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  processingStepText: {
+    fontSize: 16,
+    color: '#1C1C1E',
+    fontWeight: '500',
+    flex: 1,
+  },
+  processingProgressContainer: {
+    width: '100%',
+    marginBottom: 30,
+  },
+  progressBarBackground: {
+    width: '100%',
+    height: 8,
+    backgroundColor: '#E5E5EA',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  processingProgressFill: {
+    height: '100%',
+    backgroundColor: '#5856D6',
+    borderRadius: 4,
+  },
+  progressPercentage: {
+    fontSize: 14,
+    color: '#8E8E93',
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  processingAnimation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 30,
+    gap: 20,
+  },
+  processingTip: {
+    fontSize: 14,
+    color: '#8E8E93',
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  // Results Styles
+  resultsContainer: {
+    padding: 20,
+  },
+  summaryCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  summaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    gap: 12,
+  },
+  summaryTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1C1C1E',
+  },
+  summaryStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statNumber: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1C1C1E',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#8E8E93',
+    textAlign: 'center',
+  },
+  statDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#E5E5EA',
+  },
+  symbolCountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#F2F2F7',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 20,
+  },
+  tabButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 8,
+    gap: 8,
+  },
+  activeTab: {
+    backgroundColor: 'white',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#8E8E93',
+  },
+  activeTabText: {
+    color: '#5856D6',
+    fontWeight: '600',
+  },
+  tableContainer: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  tableHeader: {
+    marginBottom: 20,
+  },
+  tableHeaderText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1C1C1E',
+    marginBottom: 4,
+  },
+  tableSubHeaderText: {
+    fontSize: 14,
+    color: '#8E8E93',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F2F2F7',
+  },
+  tableCell: {
+    width: 60,
+    height: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 8,
+  },
+  firstColumn: {
+    width: 120,
+    alignItems: 'flex-start',
+  },
+  columnHeader: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#8E8E93',
+  },
+  indicatorText: {
+    fontSize: 10,
+    color: '#1C1C1E',
+  },
+  symbol: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  plusSymbol: {
+    backgroundColor: '#34C75920',
+  },
+  triangleSymbol: {
+    backgroundColor: '#FF950020',
+  },
+  starSymbol: {
+    backgroundColor: '#FF3B3020',
+  },
+  symbolText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  emptySymbol: {
+    fontSize: 12,
+    color: '#C7C7CC',
+  },
+  competencyContainer: {
+    marginBottom: 20,
+  },
+  competencyCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  competencyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 12,
+  },
+  competencyIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#5856D610',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  competencyName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1C1C1E',
+    flex: 1,
+  },
+  indicatorItem: {
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F2F2F7',
+  },
+  indicatorTitle: {
+    fontSize: 14,
+    color: '#1C1C1E',
+    marginBottom: 8,
+    lineHeight: 20,
+  },
+  indicatorScores: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  scoreCount: {
+    fontSize: 12,
+    color: '#8E8E93',
+  },
+  scoreSymbols: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  miniSymbol: {
+    transform: [{ scale: 0.8 }],
+  },
+  moreText: {
+    fontSize: 12,
+    color: '#8E8E93',
+    marginLeft: 4,
+  },
+  resultsActions: {
+    gap: 12,
+    marginBottom: 30,
+  },
+  resultsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  shareButton: {
+    backgroundColor: '#5856D6',
+  },
+  newButton: {
+    backgroundColor: 'white',
+    borderWidth: 2,
+    borderColor: '#5856D6',
+  },
+  resultsButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
