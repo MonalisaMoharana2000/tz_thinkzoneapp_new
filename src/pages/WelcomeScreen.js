@@ -188,12 +188,12 @@ const WelcomeScreen = ({ navigation, route, authContext }) => {
                 ମାଇକ୍ରୋଫୋନ ଅନୁମତି ଦିଅନ୍ତୁ (ORF ପାଇଁ)
               </Text>
             </View>
-            <View style={styles.instructionItem}>
+            {/* <View style={styles.instructionItem}>
               <View style={styles.instructionBullet} />
               <Text style={styles.instructionText}>
                 ପ୍ରତ୍ୟେକ ରେକର୍ଡିଂ 30 ସେକେଣ୍ଡର
               </Text>
-            </View>
+            </View> */}
           </View>
         </View>
       </ScrollView>

@@ -140,7 +140,7 @@ const ImageCapture = ({ navigation }) => {
       setTimeout(() => {
         setProcessingStep(step);
         setProcessingProgress(((index + 1) / steps.length) * 100);
-      }, index * 4000); // Slower progression - 4 seconds per step
+      }, index * 4000);
     });
   };
 
@@ -148,7 +148,6 @@ const ImageCapture = ({ navigation }) => {
     setIsProcessing(true);
     setProcessingStep('Starting OCR extraction...');
 
-    // Generate unique img_id for this request
     const imgId = `img_${Date.now()}`;
     setImgId(imgId);
 
@@ -157,12 +156,12 @@ const ImageCapture = ({ navigation }) => {
     try {
       const body = {
         image_url: url,
-        img_id: imgId, // Use generated img_id
+        img_id: imgId,
+        user_id: 'USR001',
       };
 
       console.log('Sending OCR request with body:', body);
 
-      // Single API call - the response contains the data directly
       const extractResponse = await axios.post(
         'https://ocr.thinkzone.in.net/extract-grades',
         body,
@@ -206,7 +205,6 @@ const ImageCapture = ({ navigation }) => {
     } catch (error) {
       console.error('OCR processing error:', error);
 
-      // More detailed error logging
       if (error.response) {
         console.error('Error response status:', error.response.status);
         console.error('Error response data:', error.response.data);
@@ -218,7 +216,6 @@ const ImageCapture = ({ navigation }) => {
 
       setIsProcessing(false);
 
-      // More specific error messages
       let errorMessage =
         'Failed to extract data from image. Please try again with a clearer image.';
 

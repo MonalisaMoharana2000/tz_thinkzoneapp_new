@@ -16,6 +16,7 @@ import {
   PermissionsAndroid,
   BackHandler,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import AudioRecord from 'react-native-audio-record';
@@ -52,7 +53,7 @@ try {
 const { width, height } = Dimensions.get('window');
 const isTablet = width >= 768;
 
-const AssessmentFlow = ({ navigation, user }) => {
+const AssessmentFlow = ({ navigation, user: propUser }) => {
   // State for school selection
   const [currentSection, setCurrentSection] = useState('schoolInfo');
   const [districts, setDistricts] = useState([]);
@@ -75,7 +76,8 @@ const AssessmentFlow = ({ navigation, user }) => {
   const [selectedGrade, setSelectedGrade] = useState('');
 
   const [isLoadingData, setIsLoadingData] = useState(false);
-
+  const [user, setUser] = useState(propUser);
+  console.log('user--------->', user);
   // State for student selection
   const [selectedStudentRoll, setSelectedStudentRoll] = useState(null);
   const [selectedStudentId, setSelectedStudentId] = useState(null);
@@ -89,6 +91,7 @@ const AssessmentFlow = ({ navigation, user }) => {
   // State for voice assessment
   const [recording, setRecording] = useState(false);
   const [filePath, setFilePath] = useState('');
+  const [audioSavedLocally, setAudioSavedLocally] = useState(false);
   const [soundObj, setSoundObj] = useState(null);
   const [playing, setPlaying] = useState(false);
   const [timeLeft, setTimeLeft] = useState(25);
@@ -104,11 +107,62 @@ const AssessmentFlow = ({ navigation, user }) => {
   const [textData, setTextData] = useState(null);
   const [loadingText, setLoadingText] = useState(false);
   const [textId, setTextId] = useState('');
-
+  const [textBody, setTextBody] = useState('');
+  const [textVersion, setTextVersion] = useState('');
+  const [textHeading, setTextHeading] = useState('');
+  const [textDuration, setTextDuration] = useState('');
   const timerRef = useRef(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const audioInitPromiseRef = useRef(null);
   const audioInitCompletedRef = useRef(false);
+
+  useEffect(() => {
+    // Function to load user data from AsyncStorage
+    const loadUserData = async () => {
+      try {
+        // First, use the prop if available
+        if (propUser) {
+          setUser(propUser);
+          console.log('User data from props:', propUser);
+          return;
+        }
+
+        // If prop is not available, load from AsyncStorage
+        const userDataString = await AsyncStorage.getItem('userData');
+        if (userDataString) {
+          const userData = JSON.parse(userDataString);
+          setUser(userData);
+          console.log('User data loaded from AsyncStorage:', userData);
+        } else {
+          console.log('No user data found in AsyncStorage');
+        }
+      } catch (error) {
+        console.error('Error loading user data from AsyncStorage:', error);
+      }
+    };
+
+    loadUserData();
+  }, [propUser]);
+
+  // Also load on screen focus
+  useFocusEffect(
+    React.useCallback(() => {
+      const loadUserOnFocus = async () => {
+        try {
+          const userDataString = await AsyncStorage.getItem('userData');
+          if (userDataString) {
+            const userData = JSON.parse(userDataString);
+            setUser(userData);
+            console.log('User data refreshed on focus:', userData);
+          }
+        } catch (error) {
+          console.error('Error refreshing user data:', error);
+        }
+      };
+
+      loadUserOnFocus();
+    }, []),
+  );
 
   // Update the existing backAction function in useEffect
   useEffect(() => {
@@ -383,6 +437,8 @@ const AssessmentFlow = ({ navigation, user }) => {
       { classId: '1', className: '1' },
       { classId: '2', className: '2' },
       { classId: '3', className: '3' },
+      { classId: '4', className: '4' },
+      { classId: '5', className: '5' },
     ]);
   }, []);
 
@@ -400,18 +456,18 @@ const AssessmentFlow = ({ navigation, user }) => {
     setIsLoadingData(true);
 
     try {
-      const udiseCode = getUdiseCodeFromSelectedSchool();
+      // const udiseCode = getUdiseCodeFromSelectedSchool();
 
-      if (!udiseCode) {
-        console.error('No UDISE code found');
-        setStudents([]);
-        setCompletedStudents([]);
-        setPendingStudents([]);
-        return;
-      }
+      // if (!udiseCode) {
+      //   console.error('No UDISE code found');
+      //   setStudents([]);
+      //   setCompletedStudents([]);
+      //   setPendingStudents([]);
+      //   return;
+      // }
 
       // Fetch students with ORF assessment status
-      const apiUrl = `/getStudsWithOrf?udiseCode=${udiseCode}&class=${classId}`;
+      const apiUrl = `/getStudsWithOrf?blockCode=${selectedBlockCode}&class=${classId}`;
       console.log('Fetching students from API:', apiUrl);
 
       const response = await API.get(apiUrl);
@@ -602,15 +658,15 @@ const AssessmentFlow = ({ navigation, user }) => {
       gender: gender,
       studentName: `ନୂତନ ଶିକ୍ଷାର୍ଥୀ ${selectedClass}-${studentNumber}`,
       class: selectedClass,
-      school: selectedSchool,
-      udiseCode: selectedUdiseCode,
+      // school: selectedSchool,
+      // udiseCode: selectedUdiseCode,
       academicSession: '2025-2026',
       district: selectedDistrict,
       districtCode: selectedDistrictCode,
       block: selectedBlock,
       blockCode: selectedBlockCode,
-      cluster: selectedCluster,
-      clusterCode: selectedClusterCode,
+      // cluster: selectedCluster,
+      // clusterCode: selectedClusterCode,
     };
     console.log('studentData---->', studentData);
     await saveStudentToServer(studentData);
@@ -663,31 +719,6 @@ const AssessmentFlow = ({ navigation, user }) => {
     };
   }, []);
 
-  useEffect(() => {
-    if (recording) {
-      setTimeLeft(30);
-      timerRef.current = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            stopRecording();
-            return 30;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    }
-
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    };
-  }, [recording]);
-
   const requestPermission = async () => {
     try {
       if (Platform.OS === 'android') {
@@ -710,7 +741,7 @@ const AssessmentFlow = ({ navigation, user }) => {
       const hasPermission = await requestPermission();
       if (!hasPermission) return Alert.alert('Permission denied');
 
-      // ensure we only create ONE init promise and reuse it
+      // Ensure we only create ONE init promise and reuse it
       if (!audioInitPromise) {
         audioInitPromise = (async () => {
           await AudioRecord.init({
@@ -719,25 +750,33 @@ const AssessmentFlow = ({ navigation, user }) => {
             bitsPerSample: 16,
             wavFile: 'recorded_audio.wav',
           });
-          // tiny delay to let native side settle
+          // Tiny delay to let native side settle
           await new Promise(r => setTimeout(r, 300));
         })();
         setAudioInitialized(true);
       }
 
-      // ✅ wait for init to complete before starting
+      // Wait for init to complete before starting
       await audioInitPromise;
 
+      // Start the recording
       setRecording(true);
-      setTimeLeft(30);
+      setTimeLeft(0);
       setCurrentWordIndex(-1);
       setWordStatus({});
+      setAudioSavedLocally(false);
+      // Start timer for recording duration
+      let recordingDuration = 0;
+      timerRef.current = setInterval(() => {
+        recordingDuration++;
+        setTimeLeft(recordingDuration);
+      }, 1000); // Update every second
 
       try {
         await AudioRecord.start();
         console.log('AudioRecord.start succeeded');
       } catch (err) {
-        // first-run native race guard: retry once after a short delay
+        // First-run native race guard: retry once after a short delay
         console.warn('Start failed, retrying once...', err);
         await new Promise(r => setTimeout(r, 500));
         await AudioRecord.start();
@@ -746,6 +785,9 @@ const AssessmentFlow = ({ navigation, user }) => {
     } catch (error) {
       console.error('Failed to start recording:', error);
       setRecording(false);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
       Alert.alert(
         'Recording Error',
         'Failed to start recording. Please try again.',
@@ -756,6 +798,7 @@ const AssessmentFlow = ({ navigation, user }) => {
   const stopRecording = async () => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
+      timerRef.current = null;
     }
 
     try {
@@ -763,8 +806,7 @@ const AssessmentFlow = ({ navigation, user }) => {
       const audioFile = await AudioRecord.stop();
       setFilePath(audioFile);
       setRecording(false);
-      setTimeLeft(30);
-
+      setAudioSavedLocally(true);
       // Just save locally, don't auto-upload
       console.log('Recording saved locally:', audioFile);
 
@@ -774,6 +816,7 @@ const AssessmentFlow = ({ navigation, user }) => {
         [{ text: 'OK' }],
       );
     } catch (error) {
+      setAudioSavedLocally(false);
       console.error('Error in stopRecording:', error);
       Alert.alert('Error', 'Failed to save recording.');
     } finally {
@@ -982,7 +1025,7 @@ const AssessmentFlow = ({ navigation, user }) => {
             </View>
           </View>
 
-          <View style={styles.formGroup}>
+          {/* <View style={styles.formGroup}>
             <Text style={[styles.label, { lineHeight: 30 }]}>କ୍ଲଷ୍ଟର୍‍</Text>
             <View style={styles.pickerContainer}>
               {isLoadingData && selectedBlock && !selectedCluster ? (
@@ -1021,9 +1064,9 @@ const AssessmentFlow = ({ navigation, user }) => {
                 </Picker>
               )}
             </View>
-          </View>
+          </View> */}
 
-          <View style={styles.formGroup}>
+          {/* <View style={styles.formGroup}>
             <Text style={[styles.label, { lineHeight: 30 }]}>ବିଦ୍ୟାଳୟ </Text>
             <View style={styles.pickerContainer}>
               {isLoadingData && selectedCluster && !selectedSchool ? (
@@ -1060,12 +1103,12 @@ const AssessmentFlow = ({ navigation, user }) => {
                 </Picker>
               )}
             </View>
-          </View>
+          </View> */}
 
           <View style={styles.formGroup}>
             <Text style={styles.label}>ଶ୍ରେଣୀ </Text>
             <View style={styles.pickerContainer}>
-              {isLoadingData && selectedSchool && !selectedClass ? (
+              {isLoadingData && !selectedClass ? (
                 <ActivityIndicator size="small" color="#4a6fa5" />
               ) : (
                 <Picker
@@ -1079,12 +1122,16 @@ const AssessmentFlow = ({ navigation, user }) => {
                       setSelectedGrade('grade2');
                     } else if (itemValue === '3') {
                       setSelectedGrade('grade3');
+                    } else if (itemValue === '4') {
+                      setSelectedGrade('grade4');
+                    } else if (itemValue === '5') {
+                      setSelectedGrade('grade5');
                     }
-                    if (itemValue && selectedSchool) {
+                    if (itemValue && selectedBlockCode) {
                       await fetchStudents(itemValue, selectedSchool);
                     }
                   }}
-                  enabled={!!selectedSchool && classes.length > 0}
+                  enabled={!!selectedBlock && classes.length > 0}
                 >
                   <Picker.Item
                     label="ଶ୍ରେଣୀ"
@@ -1300,7 +1347,7 @@ const AssessmentFlow = ({ navigation, user }) => {
                         gender === 'male' && styles.genderOptionTextSelected,
                       ]}
                     >
-                      ପୁରୁଷ
+                      ଛାତ୍ର
                     </Text>
                   </TouchableOpacity>
 
@@ -1333,7 +1380,7 @@ const AssessmentFlow = ({ navigation, user }) => {
                         gender === 'female' && styles.genderOptionTextSelected,
                       ]}
                     >
-                      ମହିଳା
+                      ଛାତ୍ରୀ
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -1603,20 +1650,26 @@ const AssessmentFlow = ({ navigation, user }) => {
       const response = await API.get(apiUrl);
       console.log('Text API Response:', response.data, response.status);
 
-      if (response.data.success && response.data.data) {
-        const { textId, textArr } = response.data.data;
+      if (response.status === 200) {
+        const { textId, textHeading, textBody, textVersion, textDuration } =
+          response.data.data;
         setTextId(textId);
+        setTextBody(textBody);
+        setTextVersion(textVersion);
+        setTextHeading(textHeading);
+        setTextDuration(textDuration);
 
         // Process textArr to create sentences
-        const sentences = processTextArrayToSentences(textArr);
+        const sentences = processTextArrayToSentences(textBody);
         setTextData({
           textId,
-          textArr,
-          sentences,
+          textHeading,
+          textBody,
+          textVersion,
           title: `ପଠନ ବିଷୟ: ଶ୍ରେଣୀ ${grade} ପାଠ୍ୟ`,
         });
 
-        return textArr; // Return for use in other functions
+        return textBody; // Return for use in other functions
       } else {
         throw new Error('Failed to fetch text data');
       }
@@ -1624,35 +1677,35 @@ const AssessmentFlow = ({ navigation, user }) => {
       console.error('Error fetching text data:', error);
 
       // Fallback to default text if API fails
-      const fallbackTextArr = [
-        'ବଣରେ',
-        'ବିଲୁଆଟିଏ',
-        'ଥିଲା',
-        '।',
-        'ସେ',
-        'ଭୋକିଲା',
-        'ଥିଲା',
-        '।',
-        'ନଦୀକୂଳରେ',
-        'ଗୋଟିଏ',
-        'ବତକକୁ',
-        'ଦେଖିଲା',
-        '।',
-        'ବତକ',
-        'ପୋକ',
-        'ଖାଉଥିଲା',
-        '।',
-      ];
+      // const fallbackTextArr = [
+      //   'ବଣରେ',
+      //   'ବିଲୁଆଟିଏ',
+      //   'ଥିଲା',
+      //   '।',
+      //   'ସେ',
+      //   'ଭୋକିଲା',
+      //   'ଥିଲା',
+      //   '।',
+      //   'ନଦୀକୂଳରେ',
+      //   'ଗୋଟିଏ',
+      //   'ବତକକୁ',
+      //   'ଦେଖିଲା',
+      //   '।',
+      //   'ବତକ',
+      //   'ପୋକ',
+      //   'ଖାଉଥିଲା',
+      //   '।',
+      // ];
 
-      const sentences = processTextArrayToSentences(fallbackTextArr);
-      setTextData({
-        textId: 'fallback_text',
-        textArr: fallbackTextArr,
-        sentences,
-        title: 'ପଠନ ବିଷୟ: ବିଲୁଆ ଓ ବତକର କାହାଣୀ',
-      });
+      // const sentences = processTextArrayToSentences(fallbackTextArr);
+      // setTextData({
+      //   textId: 'fallback_text',
+      //   textArr: fallbackTextArr,
+      //   sentences,
+      //   title: 'ପଠନ ବିଷୟ: ବିଲୁଆ ଓ ବତକର କାହାଣୀ',
+      // });
 
-      return fallbackTextArr;
+      // return fallbackTextArr;
     } finally {
       setLoadingText(false);
     }
@@ -1701,45 +1754,43 @@ const AssessmentFlow = ({ navigation, user }) => {
   }, [selectedGrade, currentSection, selectedClass]);
   // Voice Assessment Component
   // Voice Assessment Component
+  // Voice Assessment Component
   const renderVoiceAssessment = () => {
     // Use textData if available, otherwise use fallback
-    const displayTextData = textData || {
-      textArr: [
-        'ବଣରେ',
-        'ବିଲୁଆଟିଏ',
-        'ଥିଲା',
-        '।',
-        'ସେ',
-        'ଭୋକିଲା',
-        'ଥିଲା',
-        '।',
-        'ନଦୀକୂଳରେ',
-        'ଗୋଟିଏ',
-        'ବତକକୁ',
-        'ଦେଖିଲା',
-        '।',
-        'ବତକ',
-        'ପୋକ',
-        'ଖାଉଥିଲା',
-        '।',
-      ],
-      sentences: [
-        'ବଣରେ ବିଲୁଆଟିଏ ଥିଲା ।',
-        'ସେ ଭୋକିଲା ଥିଲା ।',
-        'ନଦୀକୂଳରେ ଗୋଟିଏ ବତକକୁ ଦେଖିଲା ।',
-        'ବତକ ପୋକ ଖାଉଥିଲା ।',
-        'ବିଲୁଆ ବତକ ଆଡକୁ ଗଲା ।',
-        'ବତକ ବିଲୁଆକୁ ଦେଖି ଧାଇଁଲା ।',
-        'ବିଲୁଆ ତା ପଛରେ ଧାଇଁଲା ।',
-        'ବତକ ପାଣିକୁ ଡେଇଁ ପଡିଲା ।',
-        'ବତକ ପାଣିରେ ପହଁରି ପଳେଇଲା ।',
-      ],
-      title: 'ପଠନ ବିଷୟ: ବିଲୁଆ ଓ ବତକର କାହାଣୀ',
-    };
+    const displayTextData = textData;
+    console.log('displayTextData----->', displayTextData);
 
-    const textArr = displayTextData.textArr || [];
-    const sentences = displayTextData.sentences;
-    const title = displayTextData.title;
+    const textBody = displayTextData?.textBody || '';
+    const title = displayTextData?.textHeading || '';
+
+    const textId = displayTextData?.textId || '';
+
+    // Function to split text body into lines for better display
+    const renderTextBody = () => {
+      if (!textBody) {
+        return (
+          <View style={styles.noTextContainer}>
+            <MaterialIcons name="error" size={40} color="#ccc" />
+            <Text style={styles.noTextMessage}>ପାଠ୍ୟ ସାମଗ୍ରୀ ଉପଲବ୍ଧ ନାହିଁ</Text>
+          </View>
+        );
+      }
+
+      // Split text by spaces to show words
+      const words = textBody.split(' ');
+
+      return (
+        <View style={styles.paragraphContent}>
+          <Text style={styles.paragraphBody}>{textBody}</Text>
+
+          {/* Optional: Show word count */}
+          <View style={styles.wordCountBadge}>
+            <MaterialIcons name="text-fields" size={14} color="#fff" />
+            <Text style={styles.wordCountText}>{words.length} ଶବ୍ଦ</Text>
+          </View>
+        </View>
+      );
+    };
 
     return (
       <View style={styles.fullContainer}>
@@ -1797,9 +1848,8 @@ const AssessmentFlow = ({ navigation, user }) => {
                 </View>
                 <Text style={styles.instructionText}>
                   1. "ରେକର୍ଡିଂ ଆରମ୍ଭ କରନ୍ତୁ" ବଟନ୍ ଦବାନ୍ତୁ{'\n'}
-                  2. ସମସ୍ତ ଶବ୍ଦ ସ୍ପଷ୍ଟ ଭାବରେ ପଢନ୍ତୁ{'\n'}
-                  3. ଆପଣଙ୍କ ପାଖରେ ୩୦ ସେକେଣ୍ଡ ସମୟ ଅଛି{'\n'}
-                  4. ସର୍ଭରକୁ ସେଭ୍ କରିବା ପାଇଁ "ସେଭ୍ କରନ୍ତୁ" ବଟନ୍ ଦବାନ୍ତୁ
+                  2. ନିମ୍ନଲିଖିତ ପାଠ୍ୟଟିକୁ ସ୍ପଷ୍ଟ ଭାବରେ ପଢନ୍ତୁ{'\n'}
+                  3. ସର୍ଭରକୁ ସେଭ୍ କରିବା ପାଇଁ "ସେଭ୍ କରନ୍ତୁ" ବଟନ୍ ଦବାନ୍ତୁ
                 </Text>
               </View>
 
@@ -1837,101 +1887,46 @@ const AssessmentFlow = ({ navigation, user }) => {
                 )}
               </View>
 
-              {/* Timer Display */}
-              <View style={styles.timerContainer}>
-                <View
-                  style={[
-                    styles.timerCircle,
-                    recording && styles.timerCircleRecording,
-                    !recording && filePath && styles.timerCircleCompleted,
-                  ]}
-                >
-                  <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
-                  <Text style={styles.timerLabel}>
-                    {recording
-                      ? 'ରେକର୍ଡିଂ ହେଉଛି...'
-                      : filePath
-                      ? 'ରେକର୍ଡିଂ ସମାପ୍ତ'
-                      : 'ପ୍ରସ୍ତୁତ'}
-                  </Text>
-                </View>
-
-                {/* Recording Status */}
-                {recording && (
-                  <View style={styles.recordingStatus}>
-                    <View style={styles.recordingPulse} />
-                    <Text style={styles.recordingText}>ଲାଇଭ୍ ରେକର୍ଡିଂ</Text>
-                  </View>
-                )}
-              </View>
-
-              {/* Reading Passage Card - UPDATED */}
+              {/* Reading Passage Card - UPDATED PARAGRAPH VIEW */}
               <View style={styles.passageCard}>
                 <View style={styles.passageHeader}>
                   <MaterialIcons name="menu-book" size={24} color="#4a6fa5" />
                   <Text style={styles.passageTitle}>{title}</Text>
+                  <TouchableOpacity style={styles.speechButton}>
+                    <MaterialIcons name="volume-up" size={20} color="#4a6fa5" />
+                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.passageContent}>
                   <Text style={styles.passageSubtitle}>
-                    ନିମ୍ନଲିଖିତ ଶବ୍ଦଗୁଡିକୁ ଉଚ୍ଚ ସ୍ୱରରେ ପଢନ୍ତୁ:
+                    ନିମ୍ନଲିଖିତ ପାଠ୍ୟଟିକୁ ଉଚ୍ଚ ସ୍ୱରରେ ପଢନ୍ତୁ:
                   </Text>
 
-                  {textArr.length > 0 ? (
-                    <View style={styles.wordsGridContainer}>
-                      <View style={styles.wordsGrid}>
-                        {textArr.map((word, index) => {
-                          const isCurrent = currentWordIndex === index;
-                          const isCorrect = wordStatus[index] === 'correct';
-                          const isWrong = wordStatus[index] === 'wrong';
+                  {/* Paragraph Container */}
+                  <View style={styles.paragraphContainer}>
+                    <View style={styles.paragraphCard}>
+                      <View style={styles.paragraphIcon}>
+                        <MaterialIcons
+                          name="format-quote"
+                          size={28}
+                          color="#fe9c3b"
+                        />
+                      </View>
 
-                          return (
-                            <View
-                              key={index}
-                              style={[
-                                styles.wordBox,
-                                isCurrent && styles.activeWordBox,
-                                isCorrect && styles.correctWordBox,
-                                isWrong && styles.wrongWordBox,
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.wordText,
-                                  isCurrent && styles.activeWordText,
-                                  isCorrect && styles.correctWordText,
-                                  isWrong && styles.wrongWordText,
-                                ]}
-                              >
-                                {word}
-                              </Text>
+                      {renderTextBody()}
 
-                              {/* Status Indicator */}
-                              {(isCorrect || isWrong) && (
-                                <View style={styles.statusIndicator}>
-                                  <MaterialIcons
-                                    name={isCorrect ? 'check' : 'close'}
-                                    size={10}
-                                    color={isCorrect ? '#00b894' : '#e17055'}
-                                  />
-                                </View>
-                              )}
-
-                              {/* Word Number */}
-                              {/* <Text style={styles.wordNumber}>{index + 1}</Text> */}
-                            </View>
-                          );
-                        })}
+                      <View style={styles.paragraphFooter}>
+                        <MaterialIcons
+                          name="translate"
+                          size={16}
+                          color="#666"
+                        />
+                        <Text style={styles.paragraphFooterText}>
+                          ଓଡ଼ିଆ ପାଠ୍ୟ • ଶ୍ରେଣୀ {selectedClass}
+                        </Text>
                       </View>
                     </View>
-                  ) : (
-                    <View style={styles.noTextContainer}>
-                      <MaterialIcons name="error" size={40} color="#ccc" />
-                      <Text style={styles.noTextMessage}>
-                        ପାଠ୍ୟ ସାମଗ୍ରୀ ଉପଲବ୍ଧ ନାହିଁ
-                      </Text>
-                    </View>
-                  )}
+                  </View>
                 </View>
               </View>
 
@@ -1956,14 +1951,17 @@ const AssessmentFlow = ({ navigation, user }) => {
                     <View style={styles.buttonTextContainer}>
                       <Text style={styles.buttonMainText}>
                         {recording
-                          ? 'ରେକର୍ଡିଂ ବନ୍ଦ କରନ୍ତୁ'
+                          ? `ରେକର୍ଡିଂ (${formatTime(timeLeft)})`
                           : 'ରେକର୍ଡିଂ ଆରମ୍ଭ କରନ୍ତୁ'}
                       </Text>
                       <Text style={styles.buttonSubText}>
+                        {recording ? 'Stop recording' : 'ରେକର୍ଡିଂ ଆରମ୍ଭ କରନ୍ତୁ'}
+                      </Text>
+                      {/* <Text style={styles.buttonSubText}>
                         {recording
                           ? `${timeLeft} ସେକେଣ୍ଡ ବାକି ଅଛି`
                           : '୩୦ ସେକେଣ୍ଡରେ ସମାପ୍ତ କରନ୍ତୁ'}
-                      </Text>
+                      </Text> */}
                     </View>
                   </View>
                 </TouchableOpacity>
@@ -2005,12 +2003,13 @@ const AssessmentFlow = ({ navigation, user }) => {
                 )}
 
                 {/* Save Button */}
+
                 <TouchableOpacity
                   onPress={handleManualSave}
                   style={[
                     styles.primaryButton,
                     styles.saveButton,
-                    (!filePath ||
+                    (!audioSavedLocally ||
                       recording ||
                       playing ||
                       isLoading ||
@@ -2019,7 +2018,7 @@ const AssessmentFlow = ({ navigation, user }) => {
                       styles.disabledButton,
                   ]}
                   disabled={
-                    !filePath ||
+                    !audioSavedLocally ||
                     recording ||
                     playing ||
                     isLoading ||
@@ -2035,10 +2034,12 @@ const AssessmentFlow = ({ navigation, user }) => {
                     />
                     <View style={styles.buttonTextContainer}>
                       <Text style={styles.buttonMainText}>
-                        {isLoading ? 'ସେଭ୍ ହେଉଛି...' : 'ସେଭ୍ କରନ୍ତୁ'}
+                        {isLoading ? 'ସେଭ୍ ହେଉଛି...' : 'ସର୍ଭରକୁ ଅପଲୋଡ୍ କରନ୍ତୁ'}
                       </Text>
                       <Text style={styles.buttonSubText}>
-                        ସର୍ଭରକୁ ଅପଲୋଡ୍ କରନ୍ତୁ
+                        {audioSavedLocally
+                          ? 'ସର୍ଭରକୁ ଅପଲୋଡ୍ କରନ୍ତୁ'
+                          : 'ପ୍ରଥମେ ରେକର୍ଡିଂ ସେଭ୍ କରନ୍ତୁ'}
                       </Text>
                     </View>
                   </View>
@@ -2124,14 +2125,14 @@ const AssessmentFlow = ({ navigation, user }) => {
 
   // Add this function near your other functions
   const refreshStudentData = async () => {
-    if (selectedClass && selectedSchool) {
+    if (selectedClass && selectedBlockCode) {
       console.log('Refreshing student data...');
       try {
         // Show loading state
         setIsLoadingData(true);
 
         // Fetch updated data from server
-        await fetchStudents(selectedClass, selectedSchool);
+        await fetchStudents(selectedClass, selectedBlockCode);
 
         console.log('Student data refreshed successfully');
       } catch (error) {
@@ -2167,23 +2168,27 @@ const AssessmentFlow = ({ navigation, user }) => {
         setAudioUrl(uploadResult.url);
 
         const body = {
-          coordinatorId: 'COORD001',
+          coordinatorId: user?.coordinatorId || 'COORD001',
           studentId: selectedStudentId,
           rollNumber: selectedStudentRoll,
           class: selectedClass,
-          udiseCode: selectedUdiseCode,
-          school: selectedSchool,
-          clusterCode: selectedClusterCode,
-          cluster: selectedCluster,
+          // udiseCode: selectedUdiseCode,
+          // school: selectedSchool,
+          // clusterCode: selectedClusterCode,
+          // cluster: selectedCluster,
           blockCode: selectedBlockCode,
           block: selectedBlock,
           districtCode: selectedDistrictCode,
           district: selectedDistrict,
           academicSession: '2025-2026',
           textId: textId,
-          textArr: textData?.textArr || [],
+          textHeading: textHeading,
+          textBody: textBody || [],
           audioUrl: uploadResult.url,
-          audioDuration: 45,
+          audioDuration: timeLeft,
+
+          textVersion: textVersion || '1.1.0',
+          textDuration: textDuration,
         };
 
         const response = await API.post(`saveOrf`, body);
@@ -2420,7 +2425,21 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     maxHeight: '75%',
   },
-
+  recordingDurationInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF6B6B',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginTop: 10,
+  },
+  recordingDurationText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: 6,
+  },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2456,6 +2475,63 @@ const styles = StyleSheet.create({
     color: '#333',
     marginLeft: 10,
     padding: 0,
+  },
+  paragraphLine: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 12,
+  },
+
+  paragraphSentence: {
+    fontSize: isTablet ? 28 : 24,
+    fontWeight: '500',
+    color: '#2D3748',
+    lineHeight: isTablet ? 40 : 36,
+    textAlign: 'left',
+    letterSpacing: 0.5,
+    fontFamily:
+      Platform.OS === 'ios' ? 'MuktaMahee-Regular' : 'sans-serif-medium',
+  },
+  paragraphContent: {
+    alignItems: 'center',
+  },
+
+  paragraphBody: {
+    fontSize: isTablet ? 32 : 28,
+    fontWeight: '500',
+    color: '#1a365d',
+    lineHeight: isTablet ? 48 : 42,
+    textAlign: 'center',
+    letterSpacing: 0.5,
+    fontFamily:
+      Platform.OS === 'ios' ? 'MuktaMahee-Regular' : 'sans-serif-medium',
+    paddingHorizontal: 10,
+  },
+
+  wordCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4a6fa5',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginTop: 15,
+  },
+
+  wordCountText: {
+    fontSize: 12,
+    color: 'white',
+    marginLeft: 6,
+    fontWeight: '600',
+  },
+  paragraphFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 20,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e6e0ff',
   },
   savingContainer: {
     flexDirection: 'row',
@@ -2507,6 +2583,34 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
+  paragraphContainer: {
+    alignItems: 'center',
+  },
+
+  paragraphCard: {
+    backgroundColor: '#f0f7ff',
+    borderRadius: 20,
+    padding: 25,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: '#d1e3ff',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    minHeight: 180,
+    justifyContent: 'center',
+    width: '100%',
+  },
+
+  paragraphIcon: {
+    position: 'absolute',
+    top: 15,
+    left: 15,
+  },
+
   studentListContainer: {
     flex: 1,
   },
@@ -3327,41 +3431,55 @@ const styles = StyleSheet.create({
 
   passageCard: {
     backgroundColor: 'white',
-    borderRadius: 20,
+    borderRadius: 24,
     marginBottom: 25,
-    elevation: 4,
+    elevation: 5,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
-    shadowRadius: 6,
+    shadowRadius: 8,
     overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#E3F2FD',
   },
+
   passageHeader: {
-    backgroundColor: '#F8F9FF',
+    backgroundColor: 'linear-gradient(135deg, #4a6fa5 0%, #3a5680 100%)',
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 18,
     paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EDF2F7',
   },
+
   passageTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
-    color: '#4a6fa5',
+    color: 'black',
     marginLeft: 12,
     flex: 1,
+    textAlign: 'center',
   },
+
+  speechButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
   passageContent: {
     padding: 20,
   },
+
   passageSubtitle: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 16,
+    color: '#4a6fa5',
     marginBottom: 20,
     textAlign: 'center',
-    fontStyle: 'italic',
-    lineHeight: 20,
+    fontWeight: '600',
+    lineHeight: 22,
   },
   passageTextContainer: {
     backgroundColor: '#FAFAFA',
@@ -3421,39 +3539,64 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     marginTop: 6,
   },
-
+  paragraphFooterText: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 8,
+    fontStyle: 'italic',
+  },
   readingGuide: {
     flexDirection: 'row',
     justifyContent: 'center',
     flexWrap: 'wrap',
-    gap: 15,
-    marginTop: 15,
-    paddingTop: 15,
-    borderTopWidth: 1,
-    borderTopColor: '#EDF2F7',
+    gap: 16,
+    backgroundColor: '#f8f9fa',
+    padding: 16,
+    borderRadius: 16,
+    width: '100%',
   },
+
   guideItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: 'white',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
+
   guideDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     marginRight: 8,
   },
+
+  guideNormal: {
+    backgroundColor: '#4a6fa5',
+  },
+
   guideCurrent: {
-    backgroundColor: '#74b9ff',
+    backgroundColor: '#fe9c3b',
   },
+
   guideCorrect: {
-    backgroundColor: '#00b894',
+    backgroundColor: '#4CAF50',
   },
+
   guideWrong: {
     backgroundColor: '#e17055',
   },
+
   guideText: {
-    fontSize: 12,
-    color: '#666',
+    fontSize: 13,
+    color: '#333',
+    fontWeight: '500',
   },
 
   playbackSection: {
