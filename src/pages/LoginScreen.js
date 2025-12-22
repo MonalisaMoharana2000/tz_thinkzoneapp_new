@@ -13,6 +13,9 @@ import {
   ActivityIndicator,
   Dimensions,
   StatusBar,
+  ScrollView,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { LinearGradient } from 'react-native-linear-gradient';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -30,8 +33,42 @@ const LoginScreen = ({ navigation, authContext }) => {
     authId: false,
     password: false,
   });
+  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+
   const passwordInputRef = useRef(null);
+  const scrollViewRef = useRef(null);
+
+  React.useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      () => {
+        setKeyboardVisible(true);
+        // Scroll to ensure form is visible when keyboard appears
+        setTimeout(() => {
+          scrollViewRef.current?.scrollTo({ y: 100, animated: true });
+        }, 100);
+      },
+    );
+
+    const keyboardDidHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => {
+        setKeyboardVisible(false);
+        // Reset scroll position when keyboard hides
+        scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+      },
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+
   const handleLogin = async () => {
+    // Dismiss keyboard when login is pressed
+    Keyboard.dismiss();
+
     if (!authId.trim() || !password.trim()) {
       Alert.alert('Error', 'Please enter both phone number and password');
       return;
@@ -83,6 +120,10 @@ const LoginScreen = ({ navigation, authContext }) => {
     }
   };
 
+  const dismissKeyboard = () => {
+    Keyboard.dismiss();
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#fe9c3b" barStyle="light-content" />
@@ -93,148 +134,191 @@ const LoginScreen = ({ navigation, authContext }) => {
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.keyboardView}
-        >
-          <View style={styles.content}>
-            {/* Header Section */}
-            <View style={styles.header}>
-              <View style={styles.logoContainer}>
-                <MaterialIcons name="school" size={50} color="#fff" />
-              </View>
-              <Text style={styles.title}>THINKZONE</Text>
-              <Text style={styles.subtitle}>
-                Foundational Literacy & Numeracy
-              </Text>
-            </View>
-
-            {/* Login Form Card */}
-            <View style={styles.formCard}>
-              <Text style={styles.formTitle}>Coordinator Login</Text>
-              <Text style={styles.formSubtitle}>
-                Access assessment tools and student data
-              </Text>
-
-              {/* Phone Number / ID Input */}
-              <View
-                style={[
-                  styles.inputContainer,
-                  isFocused.authId && styles.inputContainerFocused,
-                ]}
-              >
-                <MaterialIcons
-                  name="phone"
-                  size={22}
-                  color={isFocused.authId ? '#fe9c3b' : '#999'}
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Phone Number"
-                  placeholderTextColor="#999"
-                  value={authId}
-                  onChangeText={setAuthId}
-                  onFocus={() => setIsFocused({ ...isFocused, authId: true })}
-                  onBlur={() => setIsFocused({ ...isFocused, authId: false })}
-                  keyboardType="phone-pad"
-                  autoCapitalize="none"
-                  editable={!isLoading}
-                  returnKeyType="next"
-                  onSubmitEditing={() => passwordInputRef.current?.focus()}
-                />
-              </View>
-
-              {/* Password Input */}
-              <View
-                style={[
-                  styles.inputContainer,
-                  isFocused.password && styles.inputContainerFocused,
-                ]}
-              >
-                <MaterialIcons
-                  name="lock"
-                  size={22}
-                  color={isFocused.password ? '#fe9c3b' : '#999'}
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Password"
-                  placeholderTextColor="#999"
-                  value={password}
-                  onChangeText={setPassword}
-                  onFocus={() => setIsFocused({ ...isFocused, password: true })}
-                  onBlur={() => setIsFocused({ ...isFocused, password: false })}
-                  secureTextEntry={!showPassword}
-                  editable={!isLoading}
-                  returnKeyType="done"
-                  onSubmitEditing={handleLogin}
-                  ref={passwordInputRef}
-                />
-                <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
-                  style={styles.eyeButton}
-                  disabled={isLoading}
+        <TouchableWithoutFeedback onPress={dismissKeyboard}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.keyboardView}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
+            <ScrollView
+              ref={scrollViewRef}
+              style={styles.scrollView}
+              contentContainerStyle={styles.scrollViewContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              bounces={false}
+            >
+              <View style={styles.content}>
+                {/* Header Section */}
+                <View
+                  style={[
+                    styles.header,
+                    isKeyboardVisible && styles.headerKeyboardVisible,
+                  ]}
                 >
-                  <MaterialIcons
-                    name={showPassword ? 'visibility' : 'visibility-off'}
-                    size={22}
-                    color="#666"
-                  />
-                </TouchableOpacity>
-              </View>
-
-              {/* Login Button */}
-              <TouchableOpacity
-                style={[
-                  styles.loginButton,
-                  isLoading && styles.loginButtonDisabled,
-                ]}
-                onPress={handleLogin}
-                disabled={isLoading}
-                activeOpacity={0.8}
-              >
-                <LinearGradient
-                  colors={['#fe9c3b', '#ff8a00']}
-                  style={styles.buttonGradient}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                >
-                  {isLoading ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <>
-                      <Text style={styles.loginButtonText}>SIGN IN</Text>
-                      <MaterialIcons
-                        name="arrow-forward"
-                        size={20}
-                        color="#fff"
-                      />
-                    </>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
-
-              {/* App Info */}
-              <View style={styles.infoContainer}>
-                <View style={styles.infoRow}>
-                  <MaterialIcons name="update" size={14} color="#2196F3" />
-                  <Text style={styles.infoText}>
-                    Version 1.0.0 • Last updated: Dec 2025
+                  <View style={styles.logoContainer}>
+                    <MaterialIcons name="school" size={50} color="#fff" />
+                  </View>
+                  <Text style={styles.title}>THINKZONE</Text>
+                  <Text style={styles.subtitle}>
+                    Foundational Literacy & Numeracy
                   </Text>
                 </View>
-              </View>
-            </View>
 
-            {/* Footer */}
-            <View style={styles.footer}>
-              <Text style={styles.footerSubtext}>
-                For technical support: support@tz.in
-              </Text>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
+                {/* Login Form Card */}
+                <View style={styles.formCard}>
+                  <Text style={styles.formTitle}>Coordinator Login</Text>
+                  <Text style={styles.formSubtitle}>
+                    Access assessment tools and student data
+                  </Text>
+
+                  {/* Phone Number / ID Input */}
+                  <View
+                    style={[
+                      styles.inputContainer,
+                      isFocused.authId && styles.inputContainerFocused,
+                    ]}
+                  >
+                    <MaterialIcons
+                      name="phone"
+                      size={22}
+                      color={isFocused.authId ? '#fe9c3b' : '#999'}
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Phone Number"
+                      placeholderTextColor="#999"
+                      value={authId}
+                      onChangeText={text => {
+                        // Only allow numbers
+                        const numericText = text.replace(/[^0-9]/g, '');
+                        // Limit to 10 digits
+                        if (numericText.length <= 10) {
+                          setAuthId(numericText);
+                        }
+                      }}
+                      onFocus={() =>
+                        setIsFocused({ ...isFocused, authId: true })
+                      }
+                      onBlur={() =>
+                        setIsFocused({ ...isFocused, authId: false })
+                      }
+                      keyboardType="phone-pad"
+                      autoCapitalize="none"
+                      editable={!isLoading}
+                      returnKeyType="next"
+                      onSubmitEditing={() => passwordInputRef.current?.focus()}
+                      maxLength={10}
+                    />
+                    {authId.length === 10 && (
+                      <MaterialIcons
+                        name="check-circle"
+                        size={18}
+                        color="#4CAF50"
+                        style={styles.validationIcon}
+                      />
+                    )}
+                  </View>
+
+                  {/* Password Input */}
+                  <View
+                    style={[
+                      styles.inputContainer,
+                      isFocused.password && styles.inputContainerFocused,
+                    ]}
+                  >
+                    <MaterialIcons
+                      name="lock"
+                      size={22}
+                      color={isFocused.password ? '#fe9c3b' : '#999'}
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Password"
+                      placeholderTextColor="#999"
+                      value={password}
+                      onChangeText={setPassword}
+                      onFocus={() =>
+                        setIsFocused({ ...isFocused, password: true })
+                      }
+                      onBlur={() =>
+                        setIsFocused({ ...isFocused, password: false })
+                      }
+                      secureTextEntry={!showPassword}
+                      editable={!isLoading}
+                      returnKeyType="done"
+                      onSubmitEditing={handleLogin}
+                      ref={passwordInputRef}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowPassword(!showPassword)}
+                      style={styles.eyeButton}
+                      disabled={isLoading}
+                    >
+                      <MaterialIcons
+                        name={showPassword ? 'visibility' : 'visibility-off'}
+                        size={22}
+                        color="#666"
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Login Button */}
+                  <TouchableOpacity
+                    style={[
+                      styles.loginButton,
+                      isLoading && styles.loginButtonDisabled,
+                    ]}
+                    onPress={handleLogin}
+                    disabled={isLoading}
+                    activeOpacity={0.8}
+                  >
+                    <LinearGradient
+                      colors={['#fe9c3b', '#ff8a00']}
+                      style={styles.buttonGradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                    >
+                      {isLoading ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <>
+                          <Text style={styles.loginButtonText}>SIGN IN</Text>
+                          <MaterialIcons
+                            name="arrow-forward"
+                            size={20}
+                            color="#fff"
+                          />
+                        </>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+
+                  {/* App Info */}
+                  <View style={styles.infoContainer}>
+                    <View style={styles.infoRow}>
+                      <MaterialIcons name="update" size={14} color="#2196F3" />
+                      <Text style={styles.infoText}>
+                        Version 1.0.0 • Last updated: Dec 2025
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Footer - Hide footer when keyboard is visible on small screens */}
+                {!isKeyboardVisible || height > 700 ? (
+                  <View style={styles.footer}>
+                    <Text style={styles.footerSubtext}>
+                      For technical support: support@tz.in
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </TouchableWithoutFeedback>
       </LinearGradient>
     </SafeAreaView>
   );
@@ -250,15 +334,25 @@ const styles = StyleSheet.create({
   },
   keyboardView: {
     flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollViewContent: {
+    flexGrow: 1,
     justifyContent: 'center',
+    paddingVertical: 20,
   },
   content: {
     paddingHorizontal: 25,
-    paddingVertical: 20,
+    minHeight: height,
   },
   header: {
     alignItems: 'center',
     marginBottom: 40,
+  },
+  headerKeyboardVisible: {
+    marginBottom: height < 700 ? 20 : 30,
   },
   logoContainer: {
     width: 90,
@@ -340,24 +434,6 @@ const styles = StyleSheet.create({
   eyeButton: {
     padding: 15,
   },
-  demoContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFF9E6',
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 25,
-    marginTop: 5,
-    borderWidth: 1,
-    borderColor: '#FFE4B5',
-  },
-  demoText: {
-    fontSize: 12,
-    color: '#E65100',
-    marginLeft: 8,
-    fontWeight: '500',
-  },
   loginButton: {
     borderRadius: 12,
     overflow: 'hidden',
@@ -404,13 +480,6 @@ const styles = StyleSheet.create({
     paddingTop: 15,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  footerText: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.9)',
-    textAlign: 'center',
-    marginBottom: 4,
-    fontWeight: '500',
   },
   footerSubtext: {
     fontSize: 12,

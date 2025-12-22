@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import WelcomeScreen from './src/pages/WelcomeScreen';
 import AssessmentFlow from './src/pages/AssessmentFlow';
 import ImageCapture from './src/pages/ImageCapture';
+import AllResponsesScreen from './src/pages/AllResponsesScreen';
 import LoginScreen from './src/pages/LoginScreen';
 
 const Stack = createStackNavigator();
@@ -103,6 +104,7 @@ const App = () => {
               {props => <AssessmentFlow {...props} user={userData} />}
             </Stack.Screen>
             <Stack.Screen name="ImageCapture" component={ImageCapture} />
+            <Stack.Screen name="AllResponses" component={AllResponsesScreen} />
           </>
         ) : (
           // User is not authenticated - show login

@@ -30,7 +30,6 @@ import {
 } from '../api/SchoolsApi';
 import { API } from '../environments/Api';
 
-// Import Picker correctly - try both methods
 let Picker;
 try {
   Picker = require('@react-native-picker/picker').Picker;
@@ -111,6 +110,18 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
   const [textVersion, setTextVersion] = useState('');
   const [textHeading, setTextHeading] = useState('');
   const [textDuration, setTextDuration] = useState('');
+
+  const [draftRecordings, setDraftRecordings] = useState([]);
+  const [showDraftsList, setShowDraftsList] = useState(true); // Always show drafts list
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+
+  const [selectedDraft, setSelectedDraft] = useState(null);
+  const [batchUploading, setBatchUploading] = useState(false);
+  const [currentUploadIndex, setCurrentUploadIndex] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState({});
+  const [batchUploadResults, setBatchUploadResults] = useState([]);
+  const DRAFT_STORAGE_KEY = 'assessment_drafts';
+  const STUDENT_DRAFT_KEY = studentId => `draft_${studentId}`;
   const timerRef = useRef(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const audioInitPromiseRef = useRef(null);
@@ -200,6 +211,259 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
 
     return () => backHandler.remove();
   }, [currentSection, navigation]);
+
+  // Batch upload all drafts
+  const batchUploadDrafts = async () => {
+    if (draftRecordings.length === 0) {
+      Alert.alert('Info', 'No drafts to upload');
+      return;
+    }
+
+    try {
+      setBatchUploading(true);
+      setCurrentUploadIndex(0);
+      setUploadProgress({});
+      setBatchUploadResults([]);
+
+      const totalDrafts = draftRecordings.length;
+      let successfulUploads = 0;
+      let failedUploads = 0;
+
+      Alert.alert(
+        'ବହୁ ଡ୍ରାଫ୍ଟ ଅପଲୋଡ୍',
+        `ଆପଣ ${totalDrafts} ଟି ଡ୍ରାଫ୍ଟ ସର୍ଭରକୁ ଅପଲୋଡ୍ କରିବାକୁ ଚାହୁଁଛନ୍ତି। ଏହା କିଛି ସମୟ ନେଇପାରେ।`,
+        [
+          { text: 'ବାତିଲ୍', style: 'cancel' },
+          {
+            text: 'ଅପଲୋଡ୍ କରନ୍ତୁ',
+            onPress: async () => {
+              for (let i = 0; i < draftRecordings.length; i++) {
+                const draft = draftRecordings[i];
+                setCurrentUploadIndex(i + 1);
+
+                // Update progress
+                setUploadProgress(prev => ({
+                  ...prev,
+                  [draft.id]: {
+                    status: 'uploading',
+                    message: 'ଅପଲୋଡ୍ ହେଉଛି...',
+                  },
+                }));
+
+                try {
+                  // Upload to server
+                  const uploadResult = await uploadSingleDraftToServer(draft);
+                  console.log('uploadResult--->', uploadResult);
+                  if (uploadResult.success) {
+                    successfulUploads++;
+                    setUploadProgress(prev => ({
+                      ...prev,
+                      [draft.id]: {
+                        status: 'success',
+                        message: 'ସଫଳତାର ସହ ଅପଲୋଡ୍ ହେଲା',
+                      },
+                    }));
+
+                    setBatchUploadResults(prev => [
+                      ...prev,
+                      {
+                        draftId: draft.id,
+                        studentName: draft.studentName,
+                        rollNumber: draft.rollNumber,
+                        success: true,
+                        message: 'ସଫଳତାର ସହ ଅପଲୋଡ୍ ହେଲା',
+                      },
+                    ]);
+                  } else {
+                    failedUploads++;
+                    setUploadProgress(prev => ({
+                      ...prev,
+                      [draft.id]: {
+                        status: 'error',
+                        message: uploadResult.message || 'ଅପଲୋଡ୍ ବିଫଳ',
+                      },
+                    }));
+
+                    setBatchUploadResults(prev => [
+                      ...prev,
+                      {
+                        draftId: draft.id,
+                        studentName: draft.studentName,
+                        rollNumber: draft.rollNumber,
+                        success: false,
+                        message: uploadResult.message || 'ଅପଲୋଡ୍ ବିଫଳ',
+                      },
+                    ]);
+                  }
+                } catch (error) {
+                  failedUploads++;
+                  setUploadProgress(prev => ({
+                    ...prev,
+                    [draft.id]: {
+                      status: 'error',
+                      message: 'ଅପଲୋଡ୍ ବିଫଳ',
+                    },
+                  }));
+
+                  setBatchUploadResults(prev => [
+                    ...prev,
+                    {
+                      draftId: draft.id,
+                      studentName: draft.studentName,
+                      rollNumber: draft.rollNumber,
+                      success: false,
+                      message: 'ଅପଲୋଡ୍ ବିଫଳ',
+                    },
+                  ]);
+                }
+
+                // Small delay between uploads to prevent overwhelming the server
+                await new Promise(resolve => setTimeout(resolve, 1000));
+              }
+
+              // Show final summary
+              Alert.alert(
+                'ଅପଲୋଡ୍ ସମାପ୍ତ',
+                `ଅପଲୋଡ୍ ସମାପ୍ତ!${
+                  successfulUploads > 0 ? `\n${successfulUploads} ଟି ସଫଳ` : ''
+                }${failedUploads > 0 ? `\n${failedUploads} ଟି ବିଫଳ` : ''}`,
+                [{ text: 'ଠିକ୍ ଅଛି' }],
+              );
+
+              // Refresh drafts list
+              await loadDraftRecordings();
+            },
+          },
+        ],
+      );
+    } catch (error) {
+      console.error('Error in batch upload:', error);
+      Alert.alert('Error', 'Batch upload failed');
+    } finally {
+      setBatchUploading(false);
+    }
+  };
+
+  // Single draft upload function (refactored from uploadDraftToServer)
+  const uploadSingleDraftToServer = async draft => {
+    try {
+      console.log('Uploading single draft:', draft.id, draft);
+
+      // Generate new filename for upload
+      const uploadFileName = `draft_${draft.studentId}_${
+        draft.class
+      }_${Date.now()}.wav`;
+
+      // Upload to cloud
+      const uploadResult = await UploadFileToCloud(
+        draft.filePath,
+        uploadFileName,
+      );
+
+      if (uploadResult.success && uploadResult.url) {
+        // Prepare data for server
+        const body = {
+          coordinatorId: user?.coordinatorId || 'COORD001',
+          studentId: draft.studentId,
+          rollNumber: draft.rollNumber,
+          class: draft.class,
+          blockCode: draft.blockCode,
+          block: draft.block,
+          districtCode: draft.districtCode,
+          district: draft.draft,
+          academicSession: '2025-2026',
+          textId: draft.textId,
+          textHeading: draft.textHeading,
+          textBody: draft.textBody || [],
+          audioUrl: uploadResult.url,
+          audioDuration: draft.audioDuration || draft.duration || 0,
+          textVersion: draft.textVersion || '1.1.0',
+          textDuration: draft.textDuration,
+          assessmentType: 'ORF',
+          assessmentDate: new Date().toISOString(),
+          status: 'completed',
+        };
+
+        console.log(JSON.stringify(body, null, 2));
+
+        const response = await API.post(`saveOrf`, body);
+
+        if (response.status === 201) {
+          // Remove draft from AsyncStorage after successful upload
+          const existingDraftsString = await AsyncStorage.getItem(
+            DRAFT_STORAGE_KEY,
+          );
+          if (existingDraftsString) {
+            const existingDrafts = JSON.parse(existingDraftsString);
+            const updatedDrafts = existingDrafts.filter(d => d.id !== draft.id);
+
+            await AsyncStorage.setItem(
+              DRAFT_STORAGE_KEY,
+              JSON.stringify(updatedDrafts),
+            );
+            setDraftRecordings(updatedDrafts);
+          }
+
+          // Update student status
+          setCompletedStudents(prev => {
+            if (!prev.includes(draft.rollNumber.toString())) {
+              return [...prev, draft.rollNumber.toString()];
+            }
+            return prev;
+          });
+
+          console.log('Draft uploaded successfully:', draft.id);
+
+          return {
+            success: true,
+            message: 'ସଫଳତାର ସହ ଅପଲୋଡ୍ ହେଲା',
+          };
+        } else {
+          return {
+            success: false,
+            message: 'ସର୍ଭର ତ୍ରୁଟି',
+          };
+        }
+      } else {
+        return {
+          success: false,
+          message: uploadResult.error || 'ଫାଇଲ୍ ଅପଲୋଡ୍ ବିଫଳ',
+        };
+      }
+    } catch (error) {
+      console.error('Error uploading draft:', error);
+
+      // Update draft with failed attempt
+      const existingDraftsString = await AsyncStorage.getItem(
+        DRAFT_STORAGE_KEY,
+      );
+      if (existingDraftsString) {
+        const existingDrafts = JSON.parse(existingDraftsString);
+        const draftIndex = existingDrafts.findIndex(d => d.id === draft.id);
+
+        if (draftIndex !== -1) {
+          existingDrafts[draftIndex] = {
+            ...existingDrafts[draftIndex],
+            uploadAttempts:
+              (existingDrafts[draftIndex].uploadAttempts || 0) + 1,
+            lastUploadAttempt: new Date().toISOString(),
+            lastError: error.message,
+          };
+
+          await AsyncStorage.setItem(
+            DRAFT_STORAGE_KEY,
+            JSON.stringify(existingDrafts),
+          );
+          setDraftRecordings(existingDrafts);
+        }
+      }
+
+      return {
+        success: false,
+        message: error.message || 'ଅପଲୋଡ୍ ବିଫଳ',
+      };
+    }
+  };
 
   const UploadFileToCloud = async (fileUri, fileName) => {
     try {
@@ -914,10 +1178,528 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
-  const generateUniqueFileName = () => {
+  const generateUniqueFileName = (forDraft = false) => {
     const timestamp = Date.now();
     const randomId = Math.random().toString(36).substring(7);
+
+    if (forDraft && selectedStudentId) {
+      return `draft_${selectedStudentId}_${selectedClass}_${timestamp}_${randomId}.wav`;
+    }
+
     return `assessment_${selectedStudentRoll}_${selectedClass}_${timestamp}_${randomId}.wav`;
+  };
+
+  useEffect(() => {
+    loadDraftRecordings();
+  }, []);
+
+  // Load draft recordings from AsyncStorage
+  const loadDraftRecordings = async () => {
+    try {
+      console.log('Loading draft recordings...');
+      const draftsString = await AsyncStorage.getItem(DRAFT_STORAGE_KEY);
+      if (draftsString) {
+        const drafts = JSON.parse(draftsString);
+        // Sort by date (newest first)
+        const sortedDrafts = drafts.sort(
+          (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+        );
+        setDraftRecordings(sortedDrafts);
+        console.log('Loaded draft recordings:', sortedDrafts.length);
+      } else {
+        setDraftRecordings([]); // Clear drafts if none exist
+      }
+    } catch (error) {
+      console.error('Error loading draft recordings:', error);
+      setDraftRecordings([]); // Clear on error
+    }
+  };
+
+  // Save draft recording to AsyncStorage
+  const saveDraftRecording = async draftData => {
+    try {
+      setIsSavingDraft(true);
+
+      // Generate unique draft ID
+      const draftId = `draft_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+
+      // Create draft object
+      const newDraft = {
+        id: draftId,
+        fileName: draftData.fileName || generateUniqueFileName(),
+        filePath: draftData.filePath,
+        localFilePath: draftData.filePath, // Store local path
+        studentId: draftData.studentId,
+        studentName: draftData.studentName || `Student ${draftData.rollNumber}`,
+        rollNumber: draftData.rollNumber,
+        class: draftData.class,
+        blockCode: draftData.blockCode,
+        block: draftData.block,
+        districtCode: draftData.districtCode,
+        district: draftData.district,
+        textId: draftData.textId,
+        textHeading: draftData.textHeading,
+        textBody: draftData.textBody,
+        textVersion: draftData.textVersion,
+        textDuration: draftData.textDuration,
+        duration: draftData.duration || timeLeft,
+        audioDuration: draftData.duration || timeLeft,
+        recordingDate: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: 'draft',
+        fileSize: draftData.fileSize || '0 KB',
+        uploadAttempts: 0,
+        lastUploadAttempt: null,
+      };
+
+      // Load existing drafts
+      const existingDraftsString = await AsyncStorage.getItem(
+        DRAFT_STORAGE_KEY,
+      );
+      let existingDrafts = [];
+
+      if (existingDraftsString) {
+        existingDrafts = JSON.parse(existingDraftsString);
+
+        // Check if draft already exists for this student and text
+        const existingDraftIndex = existingDrafts.findIndex(
+          draft =>
+            draft.studentId === newDraft.studentId &&
+            draft.textId === newDraft.textId &&
+            draft.status === 'draft',
+        );
+
+        if (existingDraftIndex !== -1) {
+          // Update existing draft
+          existingDrafts[existingDraftIndex] = {
+            ...existingDrafts[existingDraftIndex],
+            ...newDraft,
+            updatedAt: new Date().toISOString(),
+          };
+        } else {
+          // Add new draft
+          existingDrafts.push(newDraft);
+        }
+      } else {
+        existingDrafts = [newDraft];
+      }
+
+      // Save to AsyncStorage
+      await AsyncStorage.setItem(
+        DRAFT_STORAGE_KEY,
+        JSON.stringify(existingDrafts),
+      );
+
+      // Update state
+      const sortedDrafts = existingDrafts.sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+      );
+      setDraftRecordings(sortedDrafts);
+
+      console.log('Draft saved successfully:', newDraft.id);
+      return newDraft;
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      Alert.alert(
+        'ତ୍ରୁଟି',
+        'ଡ୍ରାଫ୍ଟ ସେଭ୍ କରିବାରେ ବିଫଳ ହେଲା।\nଦୟାକରି ପୁଣି ଚେଷ୍ଟା କରନ୍ତୁ।',
+      );
+      return null;
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
+  useFocusEffect(
+    React.useCallback(() => {
+      if (currentSection === 'studentSelection') {
+        loadDraftRecordings();
+        // Also refresh student data
+        if (selectedClass && selectedBlockCode) {
+          fetchStudents(selectedClass, selectedBlockCode);
+        }
+      }
+    }, [currentSection, selectedClass, selectedBlockCode]),
+  );
+  // Handle save draft button click
+  const handleSaveDraft = async () => {
+    if (!filePath || !audioSavedLocally) {
+      Alert.alert('ରେକର୍ଡିଂ ନାହିଁ', 'ଦୟାକରି ପ୍ରଥମେ ରେକର୍ଡିଂ କରନ୍ତୁ।');
+      return;
+    }
+
+    if (!selectedStudentRoll || !selectedStudentId) {
+      Alert.alert(
+        'ଶିକ୍ଷାର୍ଥୀ ନିର୍ବାଚନ କରନ୍ତୁ',
+        'ଦୟାକରି ପ୍ରଥମେ ଜଣେ ଶିକ୍ଷାର୍ଥୀ ଚୟନ କରନ୍ତୁ।',
+      );
+      return;
+    }
+
+    if (!textId) {
+      Alert.alert(
+        'ପାଠ୍ୟ ନାହିଁ',
+        'ପାଠ୍ୟ ସାମଗ୍ରୀ ଲୋଡ୍ ହେଉନାହିଁ।\nଦୟାକରି ଅପେକ୍ଷା କରନ୍ତୁ।',
+      );
+      return;
+    }
+
+    try {
+      // Get file size
+      let fileSize = 'Unknown';
+      try {
+        const fs = require('react-native-fs');
+        const fileInfo = await fs.stat(filePath);
+        const sizeInKB = Math.round(fileInfo.size / 1024);
+        fileSize = `${sizeInKB} KB`;
+      } catch (error) {
+        console.log('Could not get file size:', error);
+      }
+
+      const draftData = {
+        fileName: generateUniqueFileName(),
+        filePath: filePath,
+        studentId: selectedStudentId,
+        studentName: selectedStudent,
+        rollNumber: selectedStudentRoll,
+        class: selectedClass,
+        blockCode: selectedBlockCode,
+        block: selectedBlock,
+        districtCode: selectedDistrictCode,
+        district: selectedDistrict,
+        textId: textId,
+        textHeading: textHeading,
+        textBody: textBody,
+        textVersion: textVersion,
+        textDuration: textDuration,
+        duration: timeLeft,
+        fileSize: fileSize,
+      };
+
+      const savedDraft = await saveDraftRecording(draftData);
+
+      if (savedDraft) {
+        // Force refresh of drafts list
+        await loadDraftRecordings();
+        // Also refresh student data
+        if (selectedClass && selectedBlockCode) {
+          await fetchStudents(selectedClass, selectedBlockCode);
+        }
+
+        // Reset recording state
+        setFilePath('');
+        setAudioSavedLocally(false);
+        setSoundObj(null);
+        setPlaying(false);
+        setTimeLeft(0);
+        setUploadStatus('idle');
+        setAudioUrl('');
+        setCurrentWordIndex(-1);
+        setWordStatus({});
+
+        // Navigate back to student selection
+        setCurrentSection('studentSelection');
+      }
+    } catch (error) {
+      console.error('Error in handleSaveDraft:', error);
+      Alert.alert('ତ୍ରୁଟି', 'ଡ୍ରାଫ୍ଟ ସେଭ୍ କରିବାରେ ବିଫଳ ହେଲା।');
+    }
+  };
+
+  // Delete draft recording
+  const deleteDraftRecording = async draftId => {
+    try {
+      Alert.alert(
+        'ଡ୍ରାଫ୍ଟ ଡିଲିଟ୍ କରନ୍ତୁ',
+        'ଆପଣ ନିଶ୍ଚିତ କି ଏହି ଡ୍ରାଫ୍ଟ ଡିଲିଟ୍ କରିବେ?\nଏହା ପଛକୁ ଆଣିହେବ ନାହିଁ।',
+        [
+          {
+            text: 'ବାତିଲ୍',
+            style: 'cancel',
+            onPress: () => console.log('Deletion cancelled'),
+          },
+          {
+            text: 'ଡିଲିଟ୍ କରନ୍ତୁ',
+            onPress: async () => {
+              try {
+                const existingDraftsString = await AsyncStorage.getItem(
+                  DRAFT_STORAGE_KEY,
+                );
+                if (existingDraftsString) {
+                  const existingDrafts = JSON.parse(existingDraftsString);
+                  const updatedDrafts = existingDrafts.filter(
+                    draft => draft.id !== draftId,
+                  );
+
+                  await AsyncStorage.setItem(
+                    DRAFT_STORAGE_KEY,
+                    JSON.stringify(updatedDrafts),
+                  );
+
+                  // Update state
+                  const sortedDrafts = updatedDrafts.sort(
+                    (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+                  );
+                  setDraftRecordings(sortedDrafts);
+
+                  // Clean up audio file if needed
+                  try {
+                    const draftToDelete = existingDrafts.find(
+                      d => d.id === draftId,
+                    );
+                    if (draftToDelete && draftToDelete.filePath) {
+                      // Optionally delete the physical file
+                      // const fs = require('react-native-fs');
+                      // await fs.unlink(draftToDelete.filePath);
+                    }
+                  } catch (cleanupError) {
+                    console.log('Error cleaning up file:', cleanupError);
+                  }
+
+                  Alert.alert('ସଫଳତା', 'ଡ୍ରାଫ୍ଟ ସଫଳତାର ସହିତ ଡିଲିଟ୍ ହୋଇଛି।');
+                  console.log('Draft deleted:', draftId);
+                }
+              } catch (error) {
+                console.error('Error deleting draft:', error);
+                Alert.alert('ତ୍ରୁଟି', 'ଡ୍ରାଫ୍ଟ ଡିଲିଟ୍ କରିବାରେ ବିଫଳ ହେଲା।');
+              }
+            },
+            style: 'destructive',
+          },
+        ],
+      );
+    } catch (error) {
+      console.error('Error in deleteDraftRecording:', error);
+      Alert.alert('Error', 'ଡ୍ରାଫ୍ଟ ଡିଲିଟ୍ କରିବାରେ ବିଫଳ ହେଲା');
+    }
+  };
+
+  // Upload draft to server
+  // Update the existing uploadDraftToServer function to use the new function
+  const uploadDraftToServer = async draft => {
+    const result = await uploadSingleDraftToServer(draft);
+
+    if (result.success) {
+      Alert.alert('ସଫଳତା', 'ରେକର୍ଡିଂ ସଫଳତାର ସହିତ ସର୍ଭରକୁ ଅପଲୋଡ୍ ହୋଇଛି!', [
+        { text: 'ଠିକ୍ ଅଛି' },
+      ]);
+      await refreshStudentData();
+    } else {
+      Alert.alert(
+        'ଅପଲୋଡ୍ ବିଫଳ',
+        result.message || 'ଡ୍ରାଫ୍ଟ ଅପଲୋଡ୍ କରିବାରେ ବିଫଳ ହେଲା।',
+      );
+    }
+  };
+
+  // Add this function inside renderVoiceAssessment, before the return statement
+  const renderBatchUploadSection = () => {
+    if (draftRecordings.length === 0) return null;
+
+    return (
+      <View style={styles.batchUploadSection}>
+        <Text style={styles.batchUploadTitle}>
+          ବହୁ ଡ୍ରାଫ୍ଟ ଅପଲୋଡ୍ ({draftRecordings.length} ଟି)
+        </Text>
+
+        {batchUploading ? (
+          <View style={styles.uploadProgressContainer}>
+            <ActivityIndicator size="small" color="#4ECDC4" />
+            <Text style={styles.uploadProgressText}>
+              {currentUploadIndex} / {draftRecordings.length} ଅପଲୋଡ୍ ହେଉଛି...
+            </Text>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={styles.batchUploadButton}
+            onPress={batchUploadDrafts}
+            disabled={batchUploading}
+          >
+            <MaterialIcons name="cloud-upload" size={24} color="white" />
+            <Text style={styles.batchUploadButtonText}>
+              ସମସ୍ତ ଡ୍ରାଫ୍ଟ ଅପଲୋଡ୍ କରନ୍ତୁ
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Upload Progress Details */}
+        {Object.keys(uploadProgress).length > 0 && (
+          <View style={styles.uploadDetails}>
+            <Text style={styles.uploadDetailsTitle}>ଅପଲୋଡ୍ ସ୍ଥିତି:</Text>
+            {draftRecordings.map((draft, index) => {
+              const progress = uploadProgress[draft.id];
+              if (!progress) return null;
+
+              return (
+                <View key={draft.id} style={styles.uploadDetailItem}>
+                  <MaterialIcons
+                    name={
+                      progress.status === 'success'
+                        ? 'check-circle'
+                        : progress.status === 'error'
+                        ? 'error'
+                        : 'hourglass-empty'
+                    }
+                    size={16}
+                    color={
+                      progress.status === 'success'
+                        ? '#4CAF50'
+                        : progress.status === 'error'
+                        ? '#f44336'
+                        : '#FF9800'
+                    }
+                  />
+                  <Text style={styles.uploadDetailText}>
+                    {index + 1}. {draft.studentName} (ରୋଲ୍: {draft.rollNumber}):{' '}
+                    {progress.message}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        {/* Upload Results Summary */}
+        {batchUploadResults.length > 0 && !batchUploading && (
+          <View style={styles.resultsSummary}>
+            <Text style={styles.resultsTitle}>ଅପଲୋଡ୍ ଫଳାଫଳ:</Text>
+            <View style={styles.resultsStats}>
+              <View style={styles.resultStat}>
+                <MaterialIcons name="check-circle" size={20} color="#4CAF50" />
+                <Text style={styles.resultStatText}>
+                  ସଫଳ: {batchUploadResults.filter(r => r.success).length}
+                </Text>
+              </View>
+              <View style={styles.resultStat}>
+                <MaterialIcons name="error" size={20} color="#f44336" />
+                <Text style={styles.resultStatText}>
+                  ବିଫଳ: {batchUploadResults.filter(r => !r.success).length}
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  // Play draft audio
+  const playDraftAudio = draft => {
+    try {
+      // Stop any currently playing audio
+      if (soundObj) {
+        soundObj.release();
+        setSoundObj(null);
+      }
+
+      console.log('Playing draft audio:', draft.filePath);
+
+      // Check if file exists
+      if (!draft.filePath) {
+        Alert.alert('Error', 'Audio file not found');
+        return;
+      }
+
+      // Prepare the audio file URI
+      let audioUri = draft.filePath;
+      if (!audioUri.startsWith('file://')) {
+        audioUri = `file://${audioUri}`;
+      }
+
+      console.log('Draft audio URI:', audioUri);
+
+      // Initialize the sound object
+      const newSound = new Sound(audioUri, '', error => {
+        if (error) {
+          console.error('Failed to load draft audio:', error);
+          Alert.alert('Playback Error', 'Failed to load draft audio file');
+          setPlaying(false);
+          return;
+        }
+
+        console.log('Draft audio loaded successfully');
+
+        // Get duration
+        const duration = newSound.getDuration();
+        console.log('Draft audio duration:', duration);
+
+        // Play the audio
+        newSound.play(success => {
+          if (success) {
+            console.log('Draft audio finished playing');
+          } else {
+            console.log('Draft audio playback failed');
+            Alert.alert('Playback Error', 'Failed to play draft audio');
+          }
+          newSound.release();
+          setPlaying(false);
+          setSoundObj(null);
+        });
+
+        setPlaying(true);
+        setSoundObj(newSound);
+      });
+
+      // Set error callback
+      newSound.setErrorCallback(error => {
+        console.error('Sound error:', error);
+        Alert.alert('Playback Error', 'Error playing audio');
+        setPlaying(false);
+        setSoundObj(null);
+      });
+    } catch (error) {
+      console.error('Error in playDraftAudio:', error);
+      Alert.alert('Error', 'Failed to play draft audio');
+      setPlaying(false);
+    }
+  };
+
+  // Refresh student data after upload
+
+  // Clear all drafts
+  const clearAllDrafts = async () => {
+    try {
+      if (draftRecordings.length === 0) {
+        Alert.alert('Info', 'No drafts to clear');
+        return;
+      }
+
+      Alert.alert(
+        'ସମସ୍ତ ଡ୍ରାଫ୍ଟ ଡିଲିଟ୍ କରନ୍ତୁ',
+        'ଆପଣ ନିଶ୍ଚିତ କି ସମସ୍ତ ଡ୍ରାଫ୍ଟ ଡିଲିଟ୍ କରିବେ?\nଏହା ପଛକୁ ଆଣିହେବ ନାହିଁ।',
+        [
+          {
+            text: 'ବାତିଲ୍',
+            style: 'cancel',
+          },
+          {
+            text: 'ସମସ୍ତ ଡିଲିଟ୍ କରନ୍ତୁ',
+            onPress: async () => {
+              try {
+                // Clear AsyncStorage
+                await AsyncStorage.removeItem(DRAFT_STORAGE_KEY);
+
+                // Update state
+                setDraftRecordings([]);
+
+                Alert.alert('ସଫଳତା', 'ସମସ୍ତ ଡ୍ରାଫ୍ଟ ସଫଳତାର ସହିତ ଡିଲିଟ୍ ହୋଇଛି।');
+
+                console.log('All drafts cleared');
+              } catch (error) {
+                console.error('Error clearing all drafts:', error);
+                Alert.alert('Error', 'Failed to clear all drafts');
+              }
+            },
+            style: 'destructive',
+          },
+        ],
+      );
+    } catch (error) {
+      console.error('Error in clearAllDrafts:', error);
+      Alert.alert('Error', 'Failed to clear drafts');
+    }
   };
 
   // School Info Selection Component
@@ -1216,6 +1998,26 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       `Button state - Selected: ${selectedStudentRoll}, Completed: ${selectedStudentIsCompleted}, Loading: ${isLoadingData}`,
     );
 
+    // Render batch upload header button
+    const renderBatchUploadHeader = () => {
+      if (draftRecordings.length === 0) return null;
+
+      return (
+        <TouchableOpacity
+          style={styles.batchUploadHeaderButton}
+          onPress={batchUploadDrafts}
+          disabled={batchUploading}
+        >
+          <MaterialIcons name="cloud-upload" size={20} color="white" />
+          <Text style={styles.batchUploadHeaderText}>
+            {batchUploading
+              ? `${currentUploadIndex}/${draftRecordings.length}`
+              : draftRecordings.length}
+          </Text>
+        </TouchableOpacity>
+      );
+    };
+
     return (
       <View style={styles.fullContainer}>
         <View style={styles.header}>
@@ -1230,6 +2032,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
               ଶିକ୍ଷାର୍ଥୀ ଚୟନ କରନ୍ତୁ
             </Text>
           </View>
+
+          {/* Batch Upload Button in Header */}
+          {renderBatchUploadHeader()}
         </View>
 
         {/* Stats Card */}
@@ -1260,9 +2065,27 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           </View>
         </View>
 
+        {/* Drafts Info Banner - Only show if drafts exist and list is collapsed */}
+        {draftRecordings.length > 0 && !showDraftsList && (
+          <TouchableOpacity
+            style={styles.draftsInfoBanner}
+            onPress={() => setShowDraftsList(true)}
+          >
+            <MaterialIcons name="folder" size={20} color="#4a6fa5" />
+            <Text style={styles.draftsInfoBannerText}>
+              ଆପଣଙ୍କର {draftRecordings.length} ଟି ଡ୍ରାଫ୍ଟ ରେକର୍ଡିଂ ଅଛି। ଦେଖିବା
+              ପାଇଁ ଟ୍ୟାପ୍ କରନ୍ତୁ।
+            </Text>
+            <MaterialIcons name="chevron-right" size={20} color="#4a6fa5" />
+          </TouchableOpacity>
+        )}
+
         {/* Add Student Button */}
         <TouchableOpacity
-          onPress={() => setIsAddModalVisible(true)}
+          onPress={() => {
+            console.log('Opening add student modal');
+            setIsAddModalVisible(true);
+          }}
           style={styles.addStudentButtonNew}
         >
           <View style={styles.addButtonIcon}>
@@ -1282,140 +2105,144 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           />
         </TouchableOpacity>
 
+        {/* Modal for adding new student */}
         <Modal
           visible={isAddModalVisible}
-          transparent
+          transparent={true}
           animationType="fade"
           onRequestClose={() => !isSavingStudent && setIsAddModalVisible(false)}
         >
           <View style={styles.modalOverlay}>
-            <View style={styles.modalContentNew}>
-              <View style={styles.modalHeader}>
-                <MaterialIcons name="person-add" size={28} color="#fe9c3b" />
-                <Text style={styles.modalTitleNew}>
-                  ନୂତନ ଶିକ୍ଷାର୍ଥୀ ଯୋଡ଼ନ୍ତୁ
+            <View style={styles.modalContainer}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <MaterialIcons name="person-add" size={28} color="#fe9c3b" />
+                  <Text style={styles.modalTitle}>
+                    ନୂତନ ଶିକ୍ଷାର୍ଥୀ ଯୋଡ଼ନ୍ତୁ
+                  </Text>
+                </View>
+
+                <Text style={styles.modalSubtitle}>
+                  ଶ୍ରେଣୀ {selectedClass} ପାଇଁ ରୋଲ୍ ନମ୍ବର ଦିଅନ୍ତୁ
                 </Text>
-              </View>
 
-              <Text style={styles.modalSubtitle}>
-                ଶ୍ରେଣୀ {selectedClass} ପାଇଁ ରୋଲ୍ ନମ୍ବର ଦିଅନ୍ତୁ
-              </Text>
-
-              <View style={styles.inputContainer}>
-                <MaterialIcons name="badge" size={20} color="#666" />
-                <TextInput
-                  value={studentNumber}
-                  onChangeText={setStudentNumber}
-                  keyboardType="numeric"
-                  placeholder="ଉଦାହରଣ: 25"
-                  style={styles.modalInputNew}
-                  editable={!isSavingStudent}
-                  placeholderTextColor="#999"
-                />
-              </View>
-
-              {/* Gender Selection */}
-              <View style={styles.genderContainer}>
-                <Text style={styles.genderLabel}>ଲିଙ୍ଗ ଚୟନ କରନ୍ତୁ</Text>
-                <View style={styles.genderOptionsContainer}>
-                  <TouchableOpacity
-                    style={[
-                      styles.genderOption,
-                      gender === 'male' && styles.genderOptionSelected,
-                    ]}
-                    onPress={() => setGender('male')}
-                    disabled={isSavingStudent}
-                  >
-                    <View
-                      style={[
-                        styles.genderRadio,
-                        gender === 'male' && styles.genderRadioSelected,
-                      ]}
-                    >
-                      {gender === 'male' && (
-                        <View style={styles.genderRadioInner} />
-                      )}
-                    </View>
-                    <MaterialIcons
-                      name="male"
-                      size={20}
-                      color={gender === 'male' ? '#4a6fa5' : '#666'}
-                    />
-                    <Text
-                      style={[
-                        styles.genderOptionText,
-                        gender === 'male' && styles.genderOptionTextSelected,
-                      ]}
-                    >
-                      ଛାତ୍ର
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.genderOption,
-                      gender === 'female' && styles.genderOptionSelected,
-                    ]}
-                    onPress={() => setGender('female')}
-                    disabled={isSavingStudent}
-                  >
-                    <View
-                      style={[
-                        styles.genderRadio,
-                        gender === 'female' && styles.genderRadioSelected,
-                      ]}
-                    >
-                      {gender === 'female' && (
-                        <View style={styles.genderRadioInner} />
-                      )}
-                    </View>
-                    <MaterialIcons
-                      name="female"
-                      size={20}
-                      color={gender === 'female' ? '#e91e63' : '#666'}
-                    />
-                    <Text
-                      style={[
-                        styles.genderOptionText,
-                        gender === 'female' && styles.genderOptionTextSelected,
-                      ]}
-                    >
-                      ଛାତ୍ରୀ
-                    </Text>
-                  </TouchableOpacity>
+                <View style={styles.inputContainer}>
+                  <MaterialIcons name="badge" size={20} color="#666" />
+                  <TextInput
+                    value={studentNumber}
+                    onChangeText={setStudentNumber}
+                    keyboardType="numeric"
+                    placeholder="ଉଦାହରଣ: 25"
+                    style={styles.modalInput}
+                    editable={!isSavingStudent}
+                    placeholderTextColor="#999"
+                  />
                 </View>
+
+                {/* Gender Selection */}
+                <View style={styles.genderContainer}>
+                  <Text style={styles.genderLabel}>ଲିଙ୍ଗ ଚୟନ କରନ୍ତୁ</Text>
+                  <View style={styles.genderOptionsContainer}>
+                    <TouchableOpacity
+                      style={[
+                        styles.genderOption,
+                        gender === 'male' && styles.genderOptionSelected,
+                      ]}
+                      onPress={() => setGender('male')}
+                      disabled={isSavingStudent}
+                    >
+                      <View
+                        style={[
+                          styles.genderRadio,
+                          gender === 'male' && styles.genderRadioSelected,
+                        ]}
+                      >
+                        {gender === 'male' && (
+                          <View style={styles.genderRadioInner} />
+                        )}
+                      </View>
+                      <MaterialIcons
+                        name="male"
+                        size={20}
+                        color={gender === 'male' ? '#4a6fa5' : '#666'}
+                      />
+                      <Text
+                        style={[
+                          styles.genderOptionText,
+                          gender === 'male' && styles.genderOptionTextSelected,
+                        ]}
+                      >
+                        ଛାତ୍ର
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.genderOption,
+                        gender === 'female' && styles.genderOptionSelected,
+                      ]}
+                      onPress={() => setGender('female')}
+                      disabled={isSavingStudent}
+                    >
+                      <View
+                        style={[
+                          styles.genderRadio,
+                          gender === 'female' && styles.genderRadioSelected,
+                        ]}
+                      >
+                        {gender === 'female' && (
+                          <View style={styles.genderRadioInner} />
+                        )}
+                      </View>
+                      <MaterialIcons
+                        name="female"
+                        size={20}
+                        color={gender === 'female' ? '#e91e63' : '#666'}
+                      />
+                      <Text
+                        style={[
+                          styles.genderOptionText,
+                          gender === 'female' &&
+                            styles.genderOptionTextSelected,
+                        ]}
+                      >
+                        ଛାତ୍ରୀ
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {isSavingStudent ? (
+                  <View style={styles.savingContainer}>
+                    <ActivityIndicator size="small" color="#fe9c3b" />
+                    <Text style={styles.savingText}>ସେଭ୍ ହେଉଛି...</Text>
+                  </View>
+                ) : (
+                  <View style={styles.modalButtons}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setIsAddModalVisible(false);
+                        setStudentNumber('');
+                        setGender('male');
+                      }}
+                      style={styles.modalCancelButton}
+                    >
+                      <Text style={styles.modalCancelButtonText}>ବାତିଲ୍</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={handleAddStudent}
+                      disabled={!studentNumber.trim()}
+                      style={[
+                        styles.modalOkButton,
+                        !studentNumber.trim() && styles.disabledButton,
+                      ]}
+                    >
+                      <Text style={styles.modalOkButtonText}>ସେଭ୍ କରନ୍ତୁ</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
-
-              {isSavingStudent ? (
-                <View style={styles.savingContainer}>
-                  <ActivityIndicator size="small" color="#fe9c3b" />
-                  <Text style={styles.savingText}>ସେଭ୍ ହେଉଛି...</Text>
-                </View>
-              ) : (
-                <View style={styles.modalButtonsNew}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setIsAddModalVisible(false);
-                      setStudentNumber('');
-                      setGender('male');
-                    }}
-                    style={styles.modalCancelButtonNew}
-                  >
-                    <Text style={styles.modalCancelButtonTextNew}>ବାତିଲ୍</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={handleAddStudent}
-                    disabled={!studentNumber.trim()}
-                    style={[
-                      styles.modalOkButtonNew,
-                      !studentNumber.trim() && styles.disabledButton,
-                    ]}
-                  >
-                    <Text style={styles.modalOkButtonTextNew}>ସେଭ୍ କରନ୍ତୁ</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
             </View>
           </View>
         </Modal>
@@ -1510,11 +2337,6 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                             <Text style={styles.studentId}>
                               ID: {item.studentId || 'N/A'}
                             </Text>
-                            {/* {isCompleted && (
-                            <Text style={styles.assessmentStatus}>
-                              ORF Completed
-                            </Text>
-                          )} */}
                           </View>
                         </View>
                       </View>
@@ -1570,7 +2392,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
             </View>
           )}
 
-          {/* ASSESSMENT BUTTON - FIXED */}
+          {/* ASSESSMENT BUTTON */}
           <View style={styles.footer}>
             <TouchableOpacity
               style={[
@@ -1675,37 +2497,6 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       }
     } catch (error) {
       console.error('Error fetching text data:', error);
-
-      // Fallback to default text if API fails
-      // const fallbackTextArr = [
-      //   'ବଣରେ',
-      //   'ବିଲୁଆଟିଏ',
-      //   'ଥିଲା',
-      //   '।',
-      //   'ସେ',
-      //   'ଭୋକିଲା',
-      //   'ଥିଲା',
-      //   '।',
-      //   'ନଦୀକୂଳରେ',
-      //   'ଗୋଟିଏ',
-      //   'ବତକକୁ',
-      //   'ଦେଖିଲା',
-      //   '।',
-      //   'ବତକ',
-      //   'ପୋକ',
-      //   'ଖାଉଥିଲା',
-      //   '।',
-      // ];
-
-      // const sentences = processTextArrayToSentences(fallbackTextArr);
-      // setTextData({
-      //   textId: 'fallback_text',
-      //   textArr: fallbackTextArr,
-      //   sentences,
-      //   title: 'ପଠନ ବିଷୟ: ବିଲୁଆ ଓ ବତକର କାହାଣୀ',
-      // });
-
-      // return fallbackTextArr;
     } finally {
       setLoadingText(false);
     }
@@ -1752,11 +2543,8 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       fetchTextData(selectedClass); // Use selectedClass (1, 2, 3) as grade
     }
   }, [selectedGrade, currentSection, selectedClass]);
-  // Voice Assessment Component
-  // Voice Assessment Component
-  // Voice Assessment Component
+
   const renderVoiceAssessment = () => {
-    // Use textData if available, otherwise use fallback
     const displayTextData = textData;
     console.log('displayTextData----->', displayTextData);
 
@@ -1765,7 +2553,6 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
 
     const textId = displayTextData?.textId || '';
 
-    // Function to split text body into lines for better display
     const renderTextBody = () => {
       if (!textBody) {
         return (
@@ -1826,6 +2613,21 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
               </Text>
             </View>
           </View>
+
+          {/* Drafts Button in Header */}
+          {draftRecordings.length > 0 && (
+            <TouchableOpacity
+              style={styles.draftsHeaderButton}
+              onPress={() => loadDraftRecordings()}
+            >
+              <MaterialIcons name="folder" size={20} color="white" />
+              <View style={styles.draftsBadge}>
+                <Text style={styles.draftsBadgeText}>
+                  {draftRecordings.length}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
         </View>
 
         <ScrollView
@@ -1849,7 +2651,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                 <Text style={styles.instructionText}>
                   1. "ରେକର୍ଡିଂ ଆରମ୍ଭ କରନ୍ତୁ" ବଟନ୍ ଦବାନ୍ତୁ{'\n'}
                   2. ନିମ୍ନଲିଖିତ ପାଠ୍ୟଟିକୁ ସ୍ପଷ୍ଟ ଭାବରେ ପଢନ୍ତୁ{'\n'}
-                  3. ସର୍ଭରକୁ ସେଭ୍ କରିବା ପାଇଁ "ସେଭ୍ କରନ୍ତୁ" ବଟନ୍ ଦବାନ୍ତୁ
+                  3. ସର୍ଭରକୁ ସେଭ୍ କରିବା ପାଇଁ "ସେଭ୍ କରନ୍ତୁ" ବଟନ୍ ଦବାନ୍ତୁ{'\n'}
+                  4. ଅସ୍ଥାୟୀ ଭାବରେ ସେଭ୍ କରିବା ପାଇଁ "ଡ୍ରାଫ୍ଟ ଭାବରେ ସେଭ୍ କରନ୍ତୁ"
+                  ବଟନ୍ ଦବାନ୍ତୁ
                 </Text>
               </View>
 
@@ -1938,9 +2742,10 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                   style={[
                     styles.primaryButton,
                     recording ? styles.recordingButton : styles.recordButton,
-                    (isLoading || loadingText) && styles.disabledButton,
+                    (isLoading || loadingText || isSavingDraft) &&
+                      styles.disabledButton,
                   ]}
-                  disabled={isLoading || loadingText}
+                  disabled={isLoading || loadingText || isSavingDraft}
                 >
                   <View style={styles.buttonContent}>
                     <MaterialIcons
@@ -1955,16 +2760,23 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                           : 'ରେକର୍ଡିଂ ଆରମ୍ଭ କରନ୍ତୁ'}
                       </Text>
                       <Text style={styles.buttonSubText}>
-                        {recording ? 'Stop recording' : 'ରେକର୍ଡିଂ ଆରମ୍ଭ କରନ୍ତୁ'}
-                      </Text>
-                      {/* <Text style={styles.buttonSubText}>
                         {recording
-                          ? `${timeLeft} ସେକେଣ୍ଡ ବାକି ଅଛି`
-                          : '୩୦ ସେକେଣ୍ଡରେ ସମାପ୍ତ କରନ୍ତୁ'}
-                      </Text> */}
+                          ? 'ରେକର୍ଡିଂ ବନ୍ଦ କରନ୍ତୁ'
+                          : 'ରେକର୍ଡିଂ ଆରମ୍ଭ କରନ୍ତୁ'}
+                      </Text>
                     </View>
                   </View>
                 </TouchableOpacity>
+
+                {/* Recording Status */}
+                {recording && (
+                  <View style={styles.recordingStatusContainer}>
+                    <View style={styles.recordingPulse} />
+                    <Text style={styles.recordingStatusText}>
+                      ରେକର୍ଡିଂ ଚାଲୁଛି... {timeLeft} ସେକେଣ୍ଡ
+                    </Text>
+                  </View>
+                )}
 
                 {/* Playback Controls - Only show if recording exists */}
                 {filePath && !recording && (
@@ -1976,7 +2788,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                       <TouchableOpacity
                         onPress={playAudio}
                         style={[styles.secondaryButton, styles.playButton]}
-                        disabled={playing || isLoading || loadingText}
+                        disabled={
+                          playing || isLoading || loadingText || isSavingDraft
+                        }
                       >
                         <MaterialIcons
                           name={playing ? 'pause' : 'play-arrow'}
@@ -1991,7 +2805,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                       <TouchableOpacity
                         onPress={stopAudio}
                         style={[styles.secondaryButton, styles.stopButton]}
-                        disabled={isLoading || loadingText}
+                        disabled={isLoading || loadingText || isSavingDraft}
                       >
                         <MaterialIcons name="stop" size={20} color="white" />
                         <Text style={styles.secondaryButtonText}>
@@ -2002,9 +2816,52 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                   </View>
                 )}
 
-                {/* Save Button */}
-
+                {/* Save Draft Button */}
                 <TouchableOpacity
+                  onPress={handleSaveDraft}
+                  style={[
+                    styles.primaryButton,
+                    styles.saveButton,
+                    (!audioSavedLocally ||
+                      recording ||
+                      playing ||
+                      isLoading ||
+                      loadingText ||
+                      !textId ||
+                      isSavingDraft) &&
+                      styles.disabledButton,
+                  ]}
+                  disabled={
+                    !audioSavedLocally ||
+                    recording ||
+                    playing ||
+                    isLoading ||
+                    loadingText ||
+                    !textId ||
+                    isSavingDraft
+                  }
+                >
+                  <View style={styles.buttonContent}>
+                    <MaterialIcons
+                      name={isSavingDraft ? 'hourglass-empty' : 'save'}
+                      size={24}
+                      color="white"
+                    />
+                    <View style={styles.buttonTextContainer}>
+                      <Text style={styles.buttonMainText}>
+                        {isSavingDraft
+                          ? 'ଡ୍ରାଫ୍ଟ ସେଭ୍ ହେଉଛି...'
+                          : 'ଡ୍ରାଫ୍ଟ ଭାବରେ ସେଭ୍ କରନ୍ତୁ'}
+                      </Text>
+                      <Text style={styles.buttonSubText}>
+                        ପରେ ସର୍ଭରକୁ ଅପଲୋଡ୍ କରିପାରିବେ
+                      </Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Save to Server Button */}
+                {/* <TouchableOpacity
                   onPress={handleManualSave}
                   style={[
                     styles.primaryButton,
@@ -2014,7 +2871,8 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                       playing ||
                       isLoading ||
                       loadingText ||
-                      !textId) &&
+                      !textId ||
+                      isSavingDraft) &&
                       styles.disabledButton,
                   ]}
                   disabled={
@@ -2023,7 +2881,8 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                     playing ||
                     isLoading ||
                     loadingText ||
-                    !textId
+                    !textId ||
+                    isSavingDraft
                   }
                 >
                   <View style={styles.buttonContent}>
@@ -2043,7 +2902,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                       </Text>
                     </View>
                   </View>
-                </TouchableOpacity>
+                </TouchableOpacity> */}
 
                 {/* Upload Status */}
                 {isLoading && (
@@ -2070,6 +2929,166 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                   </View>
                 )}
 
+                {/* Drafts List Section - Always visible */}
+                <View style={styles.draftsListSection}>
+                  <View style={styles.draftsListHeader}>
+                    <MaterialIcons name="folder" size={20} color="#4a6fa5" />
+                    <Text style={styles.draftsListTitle}>
+                      ସେଭ୍ କରାଯାଇଥିବା ଡ୍ରାଫ୍ଟଗୁଡିକ ({draftRecordings.length})
+                    </Text>
+                    {draftRecordings.length > 0 && (
+                      <TouchableOpacity
+                        style={styles.clearAllSmallButton}
+                        onPress={clearAllDrafts}
+                      >
+                        <Text style={styles.clearAllSmallText}>ସବୁ ଡିଲିଟ୍</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {draftRecordings.length > 0 ? (
+                    <FlatList
+                      data={draftRecordings}
+                      keyExtractor={item => item.id}
+                      scrollEnabled={false}
+                      contentContainerStyle={styles.draftFlatList}
+                      renderItem={({ item, index }) => {
+                        const progress = uploadProgress[item.id];
+                        const isUploading =
+                          progress && progress.status === 'uploading';
+                        const isSuccess =
+                          progress && progress.status === 'success';
+                        const isError = progress && progress.status === 'error';
+
+                        return (
+                          <View style={styles.draftListItem}>
+                            <View style={styles.draftListItemHeader}>
+                              <View style={styles.draftListItemInfo}>
+                                <Text style={styles.draftListItemName}>
+                                  {item.studentName} (ରୋଲ୍: {item.rollNumber})
+                                </Text>
+                                <Text style={styles.draftListItemClass}>
+                                  ଶ୍ରେଣୀ: {item.class} • {item.duration || 0}{' '}
+                                  ସେକେଣ୍ଡ
+                                </Text>
+                              </View>
+                              <View style={styles.draftListItemStatus}>
+                                {isUploading && (
+                                  <ActivityIndicator
+                                    size="small"
+                                    color="#FF9800"
+                                  />
+                                )}
+                                {isSuccess && (
+                                  <MaterialIcons
+                                    name="check-circle"
+                                    size={16}
+                                    color="#4CAF50"
+                                  />
+                                )}
+                                {isError && (
+                                  <MaterialIcons
+                                    name="error"
+                                    size={16}
+                                    color="#f44336"
+                                  />
+                                )}
+                              </View>
+                            </View>
+
+                            <View style={styles.draftListItemActions}>
+                              <TouchableOpacity
+                                style={[
+                                  styles.draftListItemButton,
+                                  styles.playButtonSmall,
+                                ]}
+                                onPress={() => playDraftAudio(item)}
+                                disabled={playing && soundObj}
+                              >
+                                <MaterialIcons
+                                  name={
+                                    playing && soundObj ? 'pause' : 'play-arrow'
+                                  }
+                                  size={14}
+                                  color="white"
+                                />
+                                <Text style={styles.draftListItemButtonText}>
+                                  {playing && soundObj ? 'ବିରତ' : 'ଶୁଣନ୍ତୁ'}
+                                </Text>
+                              </TouchableOpacity>
+
+                              <TouchableOpacity
+                                style={[
+                                  styles.draftListItemButton,
+                                  styles.uploadButtonSmall,
+                                ]}
+                                onPress={() => uploadDraftToServer(item)}
+                                disabled={isLoading || batchUploading}
+                              >
+                                {isLoading && selectedDraft === item.id ? (
+                                  <ActivityIndicator
+                                    size="small"
+                                    color="white"
+                                  />
+                                ) : (
+                                  <>
+                                    <MaterialIcons
+                                      name="cloud-upload"
+                                      size={14}
+                                      color="white"
+                                    />
+                                    <Text
+                                      style={styles.draftListItemButtonText}
+                                    >
+                                      {isSuccess ? 'ହୋଇଛି' : 'ଅପଲୋଡ୍'}
+                                    </Text>
+                                  </>
+                                )}
+                              </TouchableOpacity>
+
+                              <TouchableOpacity
+                                style={[
+                                  styles.draftListItemButton,
+                                  styles.deleteButtonSmall,
+                                ]}
+                                onPress={() => deleteDraftRecording(item.id)}
+                                disabled={isLoading || batchUploading}
+                              >
+                                <MaterialIcons
+                                  name="delete"
+                                  size={14}
+                                  color="white"
+                                />
+                                <Text style={styles.draftListItemButtonText}>
+                                  ଡିଲିଟ୍
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        );
+                      }}
+                    />
+                  ) : (
+                    <View style={styles.noDraftsInList}>
+                      <MaterialIcons
+                        name="folder-open"
+                        size={30}
+                        color="#ccc"
+                      />
+                      <Text style={styles.noDraftsInListText}>
+                        କୌଣସି ଡ୍ରାଫ୍ଟ ନାହିଁ
+                      </Text>
+                      <Text style={styles.noDraftsInListSubText}>
+                        ଡ୍ରାଫ୍ଟ ଭାବରେ ସେଭ୍ କରିବାକୁ "ଡ୍ରାଫ୍ଟ ଭାବରେ ସେଭ୍ କରନ୍ତୁ"
+                        ବଟନ୍ ଦବାନ୍ତୁ
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Batch Upload Section */}
+                {draftRecordings.length > 0 && renderBatchUploadSection()}
+
                 {/* Navigation Buttons */}
                 <View style={styles.navigationButtons}>
                   <TouchableOpacity
@@ -2088,6 +3107,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                       );
                     }}
                     style={[styles.navButton, styles.cancelNavButton]}
+                    disabled={isLoading || isSavingDraft}
                   >
                     <MaterialIcons
                       name="arrow-back"
@@ -2099,11 +3119,14 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
 
                   {uploadStatus === 'success' && (
                     <TouchableOpacity
-                      onPress={() => {
-                        setCompletedStudents(prev => [
-                          ...prev,
-                          selectedStudentRoll.toString(),
-                        ]);
+                      onPress={async () => {
+                        setCompletedStudents(prev => {
+                          if (!prev.includes(selectedStudentRoll.toString())) {
+                            return [...prev, selectedStudentRoll.toString()];
+                          }
+                          return prev;
+                        });
+                        await refreshStudentData();
                         setCurrentSection('studentSelection');
                       }}
                       style={[styles.navButton, styles.completeNavButton]}
@@ -2122,7 +3145,11 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       </View>
     );
   };
-
+  useEffect(() => {
+    if (currentSection === 'studentSelection') {
+      loadDraftRecordings();
+    }
+  }, [currentSection]);
   // Add this function near your other functions
   const refreshStudentData = async () => {
     if (selectedClass && selectedBlockCode) {
@@ -2134,15 +3161,18 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         // Fetch updated data from server
         await fetchStudents(selectedClass, selectedBlockCode);
 
+        // Also refresh drafts
+        await loadDraftRecordings();
+
         console.log('Student data refreshed successfully');
       } catch (error) {
         console.error('Error refreshing student data:', error);
-        // Even if refresh fails, local state is already updated
       } finally {
         setIsLoadingData(false);
       }
     }
   };
+
   const handleManualSave = async () => {
     if (!filePath) {
       Alert.alert('No Recording', 'Please record audio first before saving.');
@@ -2228,6 +3258,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       setIsLoading(false);
     }
   };
+
   // Main render with navigation
   return (
     <View style={styles.mainContainer}>
@@ -3037,17 +4068,29 @@ const styles = StyleSheet.create({
   // Modal Styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modalContent: {
-    backgroundColor: '#fff',
-    width: '80%',
+  modalContainer: {
+    width: '90%',
+    maxWidth: 400,
+    backgroundColor: 'white',
     borderRadius: 12,
-    padding: 20,
-    alignItems: 'center',
+    padding: 0,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
+  modalContent: {
+    padding: 20,
+  },
+
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
@@ -3569,255 +4612,56 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
-
-  guideDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    marginRight: 8,
-  },
-
-  guideNormal: {
-    backgroundColor: '#4a6fa5',
-  },
-
-  guideCurrent: {
-    backgroundColor: '#fe9c3b',
-  },
-
-  guideCorrect: {
-    backgroundColor: '#4CAF50',
-  },
-
-  guideWrong: {
-    backgroundColor: '#e17055',
-  },
-
-  guideText: {
-    fontSize: 13,
-    color: '#333',
-    fontWeight: '500',
-  },
-
-  playbackSection: {
-    marginBottom: 15,
-  },
-  playbackTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#4a6fa5',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-
-  progressHeader: {
+  batchUploadHeaderButton: {
+    position: 'absolute',
+    right: 70,
+    top: 55,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    backgroundColor: '#2196F3',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    gap: 5,
   },
-  progressTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#4a6fa5',
+  batchUploadHeaderText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
-  progressPercent: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#fe9c3b',
-  },
-  progressBar: {
-    width: '100%',
-    height: 10,
-    backgroundColor: '#E8E8E8',
-    borderRadius: 5,
-    overflow: 'hidden',
-    marginBottom: 8,
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#4ECDC4',
-    borderRadius: 5,
-  },
-  progressText: {
-    fontSize: 13,
-    color: '#7f8c8d',
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-
-  // Update existing button styles for better spacing
-  primaryButton: {
+  draftsInfoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E3F2FD',
+    marginHorizontal: 20,
+    marginVertical: 10,
+    padding: 15,
     borderRadius: 12,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    marginBottom: 15,
+    borderLeftWidth: 4,
+    borderLeftColor: '#0984e3',
+    gap: 10,
   },
-  secondaryButton: {
+  draftsInfoBannerText: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 10,
-    gap: 8,
-  },
-  navButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-  },
-
-  // Update instruction styles
-  instructionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0984e3',
-    marginLeft: 8,
-  },
-  instructionText: {
     fontSize: 14,
     color: '#2c3e50',
-    lineHeight: 22,
+    fontWeight: '500',
   },
-
-  // Update timer label
-  timerLabel: {
-    fontSize: 14,
-    color: '#7f8c8d',
-    marginTop: 4,
-    fontWeight: '600',
-  },
-
-  // Update recording status
-  recordingText: {
-    color: 'white',
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  wordsGridContainer: {
-    marginBottom: 20,
-  },
-
-  wordsGrid: {
+  draftStatusContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 10,
-    marginBottom: 20,
-  },
-
-  wordBox: {
-    width: (width - 80) / 4, // Adjust based on screen width
-    height: 80,
-    backgroundColor: 'white',
-    borderRadius: 12,
-    justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    borderWidth: 2,
-    borderColor: '#dfe6e9',
-    position: 'relative',
-    marginBottom: 10,
+    gap: 5,
   },
 
-  activeWordBox: {
-    backgroundColor: '#74b9ff',
-    borderColor: '#0984e3',
-    transform: [{ scale: 1.05 }],
-  },
-
-  correctWordBox: {
-    backgroundColor: '#d4edda',
-    borderColor: '#00b894',
-  },
-
-  wrongWordBox: {
-    backgroundColor: '#f8d7da',
-    borderColor: '#e17055',
-  },
-
-  wordText: {
-    fontSize: isTablet ? 28 : 24,
-    fontWeight: '600',
-    color: '#2d3436',
-    textAlign: 'center',
-  },
-
-  activeWordText: {
-    color: 'white',
-    fontWeight: '700',
-  },
-
-  correctWordText: {
-    color: '#00b894',
-  },
-
-  wrongWordText: {
-    color: '#e17055',
-    textDecorationLine: 'line-through',
-  },
-
-  statusIndicator: {
-    position: 'absolute',
-    top: 5,
-    right: 5,
-    backgroundColor: 'white',
-    borderRadius: 10,
-    width: 16,
-    height: 16,
-    justifyContent: 'center',
+  resultStat: {
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-
-  wordNumber: {
-    position: 'absolute',
-    bottom: 5,
-    right: 5,
-    fontSize: 10,
-    color: '#666',
-    backgroundColor: '#f0f0f0',
-    borderRadius: 8,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-  },
-
-  sentenceContainer: {
-    backgroundColor: '#f9f9f9',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#e8e8e8',
-  },
-
-  sentenceTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#4a6fa5',
-    marginBottom: 10,
-  },
-
-  sentenceTextContainer: {
     gap: 8,
   },
-
-  sentenceText: {
-    fontSize: 16,
-    color: '#2D3748',
-    lineHeight: 24,
+  resultStatText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
-
   // Update passage subtitle
   passageSubtitle: {
     fontSize: 16,
@@ -3827,7 +4671,127 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 22,
   },
-  // Add keyframes for pulse animation (if needed)
+  // Drafts List Section Styles
+  draftsListSection: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 15,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  draftsListHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  draftsListTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginLeft: 10,
+    flex: 1,
+  },
+  clearAllSmallButton: {
+    backgroundColor: '#f8d7da',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  clearAllSmallText: {
+    fontSize: 12,
+    color: '#721c24',
+    fontWeight: '500',
+  },
+  draftFlatList: {
+    paddingBottom: 5,
+  },
+  draftListItem: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  draftListItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  draftListItemInfo: {
+    flex: 1,
+  },
+  draftListItemName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  draftListItemClass: {
+    fontSize: 12,
+    color: '#666',
+  },
+  draftListItemStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  draftListItemActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  draftListItemButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    gap: 6,
+  },
+  playButtonSmall: {
+    backgroundColor: '#0984e3',
+  },
+  uploadButtonSmall: {
+    backgroundColor: '#4CAF50',
+  },
+  deleteButtonSmall: {
+    backgroundColor: '#f44336',
+  },
+  draftListItemButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  noDraftsInList: {
+    alignItems: 'center',
+    padding: 20,
+  },
+  noDraftsInListText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+  },
+  noDraftsInListSubText: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 5,
+    lineHeight: 16,
+  },
+
   '@keyframes pulse': {
     '0%': {
       opacity: 1,

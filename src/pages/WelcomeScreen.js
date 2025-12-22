@@ -1,5 +1,6 @@
 // WelcomeScreen.js
 import React, { useEffect, useRef } from 'react';
+
 import {
   View,
   Text,
@@ -202,14 +203,14 @@ const WelcomeScreen = ({ navigation, route, authContext }) => {
       <View style={styles.footer}>
         <Text style={styles.footerText}>ଓଡ଼ିଶା ସରକାର | ଶିକ୍ଷା ବିଭାଗ</Text>
 
-        {/* Logout Button */}
+        {/* Bigger and more visible Logout Button */}
         <TouchableOpacity
           style={styles.logoutButton}
           onPress={handleLogout}
           activeOpacity={0.7}
         >
           <View style={styles.logoutButtonContent}>
-            <MaterialIcons name="logout" size={18} color="#fff" />
+            <MaterialIcons name="logout" size={24} color="#fff" />
             <Text style={styles.logoutButtonText}>ଲଗ୍‌ଆଉଟ୍</Text>
           </View>
         </TouchableOpacity>
@@ -227,7 +228,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 120, // Increased to accommodate the footer with button
+    paddingBottom: 160,
   },
   header: {
     alignItems: 'center',
@@ -396,27 +397,40 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: '#FFFFFF',
-    paddingVertical: 15,
-    borderTopWidth: 1,
-    borderTopColor: '#EEEEEE',
+    paddingVertical: 20, // Increased padding
+    paddingHorizontal: 20, // Added horizontal padding
+    borderTopWidth: 2,
+    borderTopColor: '#F0F0F0',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 5,
   },
   footerText: {
-    fontSize: 12,
-    color: '#888888',
-    fontWeight: '500',
-    marginBottom: 10,
+    fontSize: 13,
+    color: '#666666',
+    fontWeight: '600',
+    marginBottom: 20, // Increased margin
+    textAlign: 'center',
   },
   logoutButton: {
     backgroundColor: '#FF6B35',
-    borderRadius: 25,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    borderRadius: 12,
+    paddingHorizontal: 35, // Increased padding
+    paddingVertical: 16, // Increased padding
+    elevation: 5,
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    width: '100%', // Make it full width of footer
+    maxWidth: width * 0.85, // But limit maximum width
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FF5500',
   },
   logoutButtonContent: {
     flexDirection: 'row',
@@ -425,9 +439,11 @@ const styles = StyleSheet.create({
   },
   logoutButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 8,
+    fontSize: 18, // Larger font size
+    fontWeight: '800', // Extra bold
+    marginLeft: 12,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase', // Make text uppercase for emphasis
   },
 });
 

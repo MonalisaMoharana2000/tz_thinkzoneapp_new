@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,10 +13,11 @@ import {
   Platform,
   PermissionsAndroid,
   BackHandler,
-  Modal,
   Animated,
   Easing,
   RefreshControl,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -33,7 +34,6 @@ const ImageCapture = ({ navigation }) => {
   const [showPreview, setShowPreview] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
-  const [backPressCount, setBackPressCount] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ocrData, setOcrData] = useState(null);
   const [processingStep, setProcessingStep] = useState('');
@@ -42,9 +42,56 @@ const ImageCapture = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [progressAnimation] = useState(new Animated.Value(0));
   const [processingProgress, setProcessingProgress] = useState(0);
-  const [selectedTab, setSelectedTab] = useState('table'); // 'table' or 'overview'
+  const [selectedTab, setSelectedTab] = useState('table');
+  const [showLogsModal, setShowLogsModal] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [selectedLog, setSelectedLog] = useState(null);
+  const [showLogDetails, setShowLogDetails] = useState(false);
+  const [isProcessingAsync, setIsProcessingAsync] = useState(false);
+  const [asyncProcessingId, setAsyncProcessingId] = useState(null);
+  const [showAsyncNotification, setShowAsyncNotification] = useState(false);
+  const processingTimeoutRef = useRef(null);
 
-  // Handle back button press
+  const fetchLogs = async () => {
+    setLoadingLogs(true);
+    try {
+      const response = await axios.post(
+        'https://ocr.thinkzone.in.net/get-logs',
+        {
+          user_id: 'USR001',
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 30000,
+        },
+      );
+
+      if (response.data && Array.isArray(response.data)) {
+        const filteredLogs = response.data.filter(
+          log =>
+            log.mlResponse &&
+            log.mlResponse.length > 1 &&
+            !(
+              log.mlResponse.length === 1 &&
+              log.mlResponse[0]['ଦକ୍ଷତା'] === ':---'
+            ),
+        );
+        setLogs(filteredLogs);
+      } else {
+        setLogs([]);
+      }
+    } catch (error) {
+      console.error('Error fetching logs:', error);
+      Alert.alert('Error', 'Failed to fetch logs. Please try again.');
+      setLogs([]);
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
   const handleBackPress = useCallback(() => {
     if (isScanning) {
       return true;
@@ -66,6 +113,16 @@ const ImageCapture = ({ navigation }) => {
       return true;
     }
 
+    if (showLogsModal) {
+      setShowLogsModal(false);
+      return true;
+    }
+
+    if (showLogDetails) {
+      setShowLogDetails(false);
+      return true;
+    }
+
     navigation.navigate('Welcome');
     return true;
   }, [
@@ -75,6 +132,8 @@ const ImageCapture = ({ navigation }) => {
     imageUrl,
     showResults,
     navigation,
+    showLogsModal,
+    showLogDetails,
   ]);
 
   useEffect(() => {
@@ -121,7 +180,7 @@ const ImageCapture = ({ navigation }) => {
 
     Animated.timing(progressAnimation, {
       toValue: 1,
-      duration: 30000, // Increased to 30 seconds
+      duration: 30000,
       easing: Easing.linear,
       useNativeDriver: false,
     }).start();
@@ -147,11 +206,45 @@ const ImageCapture = ({ navigation }) => {
   const extractGrades = async url => {
     setIsProcessing(true);
     setProcessingStep('Starting OCR extraction...');
+    setShowAsyncNotification(false);
 
     const imgId = `img_${Date.now()}`;
     setImgId(imgId);
 
     simulateProcessing();
+
+    if (processingTimeoutRef.current) {
+      clearTimeout(processingTimeoutRef.current);
+    }
+
+    processingTimeoutRef.current = setTimeout(() => {
+      if (isProcessing) {
+        setIsProcessingAsync(true);
+        setAsyncProcessingId(imgId);
+        setShowAsyncNotification(true);
+        Alert.alert(
+          'Processing is taking longer than expected',
+          'Your image is being processed in the background. You can continue with other tasks.',
+          [
+            {
+              text: 'Continue Processing',
+              onPress: () => {
+                // Continue in background
+              },
+            },
+            {
+              text: 'Upload New Image',
+              style: 'cancel',
+              onPress: () => {
+                setIsProcessing(false);
+                setIsProcessingAsync(false);
+                resetToInitialView();
+              },
+            },
+          ],
+        );
+      }
+    }, 60000);
 
     try {
       const body = {
@@ -169,9 +262,13 @@ const ImageCapture = ({ navigation }) => {
           headers: {
             'Content-Type': 'application/json',
           },
-          timeout: 90000,
+          timeout: 120000, // Increased timeout to 2 minutes
         },
       );
+
+      if (processingTimeoutRef.current) {
+        clearTimeout(processingTimeoutRef.current);
+      }
 
       console.log('OCR Response received:', extractResponse.data);
 
@@ -180,13 +277,13 @@ const ImageCapture = ({ navigation }) => {
         Array.isArray(extractResponse.data.table)
       ) {
         const transformedData = {
+          userId: 'USR001',
           imgId: imgId,
           imgUrl: url,
           mlResponse: extractResponse.data.table,
-          meta: {
-            tokens_total: extractResponse.data.tokens_total,
-            mongo_inserted_count: extractResponse.data.mongo_inserted_count,
-            mongo_error: extractResponse.data.mongo_error,
+          _meta: {
+            inserted_at: new Date().toISOString(),
+            tokens_total: extractResponse.data.tokens_total || 0,
           },
         };
 
@@ -203,16 +300,11 @@ const ImageCapture = ({ navigation }) => {
         throw new Error('No table data found in response');
       }
     } catch (error) {
-      console.error('OCR processing error:', error);
-
-      if (error.response) {
-        console.error('Error response status:', error.response.status);
-        console.error('Error response data:', error.response.data);
-      } else if (error.request) {
-        console.error('No response received:', error.request);
-      } else {
-        console.error('Error setting up request:', error.message);
+      if (processingTimeoutRef.current) {
+        clearTimeout(processingTimeoutRef.current);
       }
+
+      console.error('OCR processing error:', error);
 
       setIsProcessing(false);
 
@@ -220,8 +312,22 @@ const ImageCapture = ({ navigation }) => {
         'Failed to extract data from image. Please try again with a clearer image.';
 
       if (error.code === 'ECONNABORTED') {
-        errorMessage =
-          'Request timeout. The server is taking too long to respond. Please try again.';
+        setIsProcessingAsync(true);
+        setAsyncProcessingId(imgId);
+        setShowAsyncNotification(true);
+        Alert.alert(
+          'Processing Timeout',
+          'The server is taking longer than expected to process your image. You can continue with other tasks.',
+          [
+            {
+              text: 'Upload New Image',
+              onPress: () => {
+                setIsProcessing(false);
+                resetToInitialView();
+              },
+            },
+          ],
+        );
       } else if (error.response?.status === 500) {
         errorMessage =
           'Server error. Please try again later or contact support.';
@@ -493,6 +599,14 @@ const ImageCapture = ({ navigation }) => {
     setShowResults(false);
     setIsProcessing(false);
     setImgId('');
+    setShowLogsModal(false);
+    setShowLogDetails(false);
+    setSelectedLog(null);
+    setIsProcessingAsync(false);
+    setShowAsyncNotification(false);
+    if (processingTimeoutRef.current) {
+      clearTimeout(processingTimeoutRef.current);
+    }
   };
 
   const navigateBack = () => {
@@ -503,13 +617,21 @@ const ImageCapture = ({ navigation }) => {
       retakePicture();
     } else if (imageUrl) {
       resetToInitialView();
+    } else if (showLogsModal) {
+      setShowLogsModal(false);
+    } else if (showLogDetails) {
+      setShowLogDetails(false);
     } else {
       navigation.navigate('Welcome');
     }
   };
 
   const renderSymbol = symbol => {
-    switch (symbol) {
+    if (!symbol || symbol === ':---' || symbol === '' || symbol === undefined) {
+      return <Text style={styles.emptySymbol}>-</Text>;
+    }
+
+    switch (symbol.trim()) {
       case '+':
         return (
           <View style={[styles.symbol, styles.plusSymbol]}>
@@ -533,16 +655,15 @@ const ImageCapture = ({ navigation }) => {
     }
   };
 
-  const calculateSummary = () => {
-    if (!ocrData?.mlResponse)
-      return { total: 0, plus: 0, triangle: 0, star: 0 };
+  const calculateSummary = mlResponse => {
+    if (!mlResponse) return { total: 0, plus: 0, triangle: 0, star: 0 };
 
     let total = 0;
     let plus = 0;
     let triangle = 0;
     let star = 0;
 
-    ocrData.mlResponse.forEach(row => {
+    mlResponse.forEach(row => {
       for (let i = 1; i <= 30; i++) {
         const key = i.toString().split('').join('');
         const value = row[key];
@@ -556,13 +677,13 @@ const ImageCapture = ({ navigation }) => {
     return { total, plus, triangle, star };
   };
 
-  const getCompetencyData = () => {
-    if (!ocrData?.mlResponse) return [];
+  const getCompetencyData = mlResponse => {
+    if (!mlResponse) return [];
 
     const competencies = [];
     let currentCompetency = null;
 
-    ocrData.mlResponse.forEach(row => {
+    mlResponse.forEach(row => {
       if (row['ଦକ୍ଷତା'] && row['ଦକ୍ଷତା'].includes('**')) {
         if (currentCompetency) {
           competencies.push(currentCompetency);
@@ -574,6 +695,7 @@ const ImageCapture = ({ navigation }) => {
       } else if (
         row['ସୂଚକାଙ୍କ'] &&
         row['ସୂଚକାଙ୍କ'] !== '' &&
+        row['ସୂଚକାଙ୍କ'] !== ':---' &&
         currentCompetency
       ) {
         currentCompetency.indicators.push({
@@ -591,6 +713,289 @@ const ImageCapture = ({ navigation }) => {
     }
 
     return competencies;
+  };
+
+  const formatDate = dateString => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const renderLogItem = ({ item }) => {
+    const summary = calculateSummary(item.mlResponse);
+    const date = formatDate(
+      item._meta?.inserted_at || new Date().toISOString(),
+    );
+
+    return (
+      <TouchableOpacity
+        style={styles.logItem}
+        onPress={() => {
+          setSelectedLog(item);
+          setShowLogDetails(true);
+        }}
+      >
+        <View style={styles.logHeader}>
+          <Icon name="history" size={20} color="#5856D6" />
+          <View style={styles.logInfo}>
+            <Text style={styles.logImgId}>{item.imgId}</Text>
+            <Text style={styles.logDate}>{date}</Text>
+          </View>
+        </View>
+        <View style={styles.logStats}>
+          {/* <View style={styles.logStat}>
+            <Text style={styles.logStatValue}>{summary.total}</Text>
+            <Text style={styles.logStatLabel}>Total</Text>
+          </View> */}
+          {/* <View style={styles.logStat}>
+            <View style={styles.symbolCountRow}>
+              {renderSymbol('+')}
+              <Text style={[styles.logStatValue, { color: '#34C759' }]}>
+                {summary.plus}
+              </Text>
+            </View>
+            <Text style={styles.logStatLabel}>Excellent</Text>
+          </View> */}
+          {/* <View style={styles.logStat}>
+            <View style={styles.symbolCountRow}>
+              {renderSymbol('▲')}
+              <Text style={[styles.logStatValue, { color: '#FF9500' }]}>
+                {summary.triangle}
+              </Text>
+            </View>
+            <Text style={styles.logStatLabel}>Good</Text>
+          </View> */}
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderLogDetails = () => {
+    if (!selectedLog) return null;
+
+    const summary = calculateSummary(selectedLog.mlResponse);
+    const competencies = getCompetencyData(selectedLog.mlResponse);
+    console.log('selectedLog---->', selectedLog);
+    return (
+      <Modal
+        visible={showLogDetails}
+        animationType="slide"
+        onRequestClose={() => setShowLogDetails(false)}
+      >
+        <SafeAreaView style={styles.container}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity
+              onPress={() => setShowLogDetails(false)}
+              style={styles.modalBackButton}
+            >
+              <Icon name="arrow-back" size={24} color="#1C1C1E" />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Log Details</Text>
+            <View style={styles.headerPlaceholder} />
+          </View>
+
+          <ScrollView contentContainerStyle={styles.logDetailsContainer}>
+            <View style={styles.logSummaryCard}>
+              <View style={styles.logSummaryHeader}>
+                <Icon name="info" size={24} color="#5856D6" />
+                <Text style={styles.logSummaryTitle}>Image Details</Text>
+              </View>
+              <View style={styles.logInfoRow}>
+                <Text style={styles.logInfoLabel}>Image ID:</Text>
+                <Text style={styles.logInfoValue}>{selectedLog.imgId}</Text>
+              </View>
+              <View style={styles.logInfoRow}>
+                <Text style={styles.logInfoLabel}>Upload Date:</Text>
+                <Text style={styles.logInfoValue}>
+                  {formatDate(selectedLog._meta?.inserted_at)}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryHeader}>
+                <Icon name="assessment" size={24} color="#5856D6" />
+                <Text style={styles.summaryTitle}>Assessment Summary</Text>
+              </View>
+
+              <View style={styles.summaryStats}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statNumber}>{summary.total}</Text>
+                  <Text style={styles.statLabel}>Total Scores</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <View style={styles.symbolCountRow}>
+                    {renderSymbol('+')}
+                    <Text style={[styles.statNumber, { color: '#34C759' }]}>
+                      {summary.plus}
+                    </Text>
+                  </View>
+                  <Text style={styles.statLabel}>Excellent</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <View style={styles.symbolCountRow}>
+                    {renderSymbol('▲')}
+                    <Text style={[styles.statNumber, { color: '#FF9500' }]}>
+                      {summary.triangle}
+                    </Text>
+                  </View>
+                  <Text style={styles.statLabel}>Good</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <View style={styles.symbolCountRow}>
+                    {renderSymbol('*')}
+                    <Text style={[styles.statNumber, { color: '#FF3B30' }]}>
+                      {summary.star}
+                    </Text>
+                  </View>
+                  <Text style={styles.statLabel}>Needs Improvement</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.tableContainer}>
+              <View style={styles.tableHeader}>
+                <Text style={styles.tableHeaderText}>Assessment Data</Text>
+                <Text style={styles.tableSubHeaderText}>
+                  Student scores across all competencies
+                </Text>
+              </View>
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View>
+                  {/* Table Header Row */}
+                  <View style={styles.tableRow}>
+                    <View style={[styles.tableCell, styles.firstColumn]}>
+                      <Text style={styles.columnHeader}>Indicator</Text>
+                    </View>
+                    {/* Display Odia numerals 1-30 in header */}
+                    {[
+                      '୧',
+                      '୨',
+                      '୩',
+                      '୪',
+                      '୫',
+                      '୬',
+                      '୭',
+                      '୮',
+                      '୯',
+                      '୧୦',
+                      '୧୧',
+                      '୧୨',
+                      '୧୩',
+                      '୧୪',
+                      '୧୫',
+                      '୧୬',
+                      '୧୭',
+                      '୧୮',
+                      '୧୯',
+                      '୨୦',
+                      '୨୧',
+                      '୨୨',
+                      '୨୩',
+                      '୨୪',
+                      '୨୫',
+                      '୨୬',
+                      '୨୭',
+                      '୨୮',
+                      '୨୯',
+                      '୩୦',
+                    ].map((odiaNum, index) => (
+                      <View key={index} style={styles.tableCell}>
+                        <Text style={styles.columnHeader}>{odiaNum}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {/* Table Data Rows */}
+                  {selectedLog.mlResponse
+                    .filter(
+                      row =>
+                        row['ସୂଚକାଙ୍କ'] &&
+                        row['ସୂଚକାଙ୍କ'] !== '' &&
+                        row['ସୂଚକାଙ୍କ'] !== ':---',
+                    )
+                    .map((row, rowIndex) => (
+                      <View key={rowIndex} style={styles.tableRow}>
+                        <View style={[styles.tableCell, styles.firstColumn]}>
+                          <Text style={styles.indicatorText} numberOfLines={2}>
+                            {row['ସୂଚକାଙ୍କ']}
+                          </Text>
+                        </View>
+
+                        {/* Display scores for Odia numerals 1-30 */}
+                        {[
+                          '୧',
+                          '୨',
+                          '୩',
+                          '୪',
+                          '୫',
+                          '୬',
+                          '୭',
+                          '୮',
+                          '୯',
+                          '୧୦',
+                          '୧୧',
+                          '୧୨',
+                          '୧୩',
+                          '୧୪',
+                          '୧୫',
+                          '୧୬',
+                          '୧୭',
+                          '୧୮',
+                          '୧୯',
+                          '୨୦',
+                          '୨୧',
+                          '୨୨',
+                          '୨୩',
+                          '୨୪',
+                          '୨୫',
+                          '୨୬',
+                          '୨୭',
+                          '୨୮',
+                          '୨୯',
+                          '୩୦',
+                        ].map((odiaNum, colIndex) => {
+                          const score = row[odiaNum];
+                          console.log(
+                            `Row ${rowIndex}, Column ${odiaNum}:`,
+                            score,
+                          );
+                          return (
+                            <View key={colIndex} style={styles.tableCell}>
+                              {renderSymbol(score)}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ))}
+                </View>
+              </ScrollView>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.resultsButton, styles.closeButton]}
+              onPress={() => setShowLogDetails(false)}
+            >
+              <Icon name="close" size={20} color="#FFFFFF" />
+              <Text style={styles.resultsButtonText}>Close</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+    );
+  };
+
+  const navigateToAllResponses = () => {
+    navigation.navigate('AllResponses');
   };
 
   if (Platform.OS === 'android' && hasCameraPermission === null) {
@@ -657,18 +1062,38 @@ const ImageCapture = ({ navigation }) => {
               </Text>
             </View>
 
-            <View style={styles.processingAnimation}>
-              <Icon name="document-scanner" size={40} color="#8E8E93" />
-              <Icon name="arrow-forward" size={24} color="#8E8E93" />
-              <Icon name="text-fields" size={40} color="#8E8E93" />
-              <Icon name="arrow-forward" size={24} color="#8E8E93" />
-              <Icon name="analytics" size={40} color="#8E8E93" />
+            <View style={styles.timeWarningContainer}>
+              <Icon name="schedule" size={24} color="#FF9500" />
+              <Text style={styles.timeWarningText}>
+                If processing takes more than 1 minute, you can upload a new
+                image and check results later.
+              </Text>
             </View>
 
-            <Text style={styles.processingTip}>
-              Tip: Ensure the image is well-lit and the text is clear for best
-              results
-            </Text>
+            {/* <TouchableOpacity
+              style={styles.cancelProcessingButton}
+              onPress={() => {
+                Alert.alert(
+                  'Cancel Processing',
+                  'Are you sure you want to cancel?',
+                  [
+                    {
+                      text: 'No',
+                      style: 'cancel',
+                    },
+                    {
+                      text: 'Yes',
+                      onPress: () => {
+                        setIsProcessing(false);
+                        resetToInitialView();
+                      },
+                    },
+                  ],
+                );
+              }}
+            >
+              <Text style={styles.cancelProcessingText}>Cancel Processing</Text>
+            </TouchableOpacity> */}
           </View>
         </View>
       </SafeAreaView>
@@ -676,8 +1101,8 @@ const ImageCapture = ({ navigation }) => {
   }
 
   if (showResults && ocrData) {
-    const summary = calculateSummary();
-    const competencies = getCompetencyData();
+    const summary = calculateSummary(ocrData.mlResponse);
+    const competencies = getCompetencyData(ocrData.mlResponse);
 
     return (
       <SafeAreaView style={styles.container}>
@@ -705,7 +1130,6 @@ const ImageCapture = ({ navigation }) => {
             />
           }
         >
-          {/* Summary Card */}
           <View style={styles.summaryCard}>
             <View style={styles.summaryHeader}>
               <Icon name="assessment" size={24} color="#5856D6" />
@@ -750,7 +1174,6 @@ const ImageCapture = ({ navigation }) => {
             </View>
           </View>
 
-          {/* Tab Navigation */}
           <View style={styles.tabContainer}>
             <TouchableOpacity
               style={[
@@ -809,7 +1232,7 @@ const ImageCapture = ({ navigation }) => {
                 <View>
                   <View style={styles.tableRow}>
                     <View style={[styles.tableCell, styles.firstColumn]}>
-                      <Text style={styles.columnHeader}>Student</Text>
+                      <Text style={styles.columnHeader}>Indicator</Text>
                     </View>
                     {Array.from({ length: 30 }, (_, i) => i + 1).map(num => (
                       <View key={num} style={styles.tableCell}>
@@ -819,12 +1242,17 @@ const ImageCapture = ({ navigation }) => {
                   </View>
 
                   {ocrData.mlResponse
-                    .filter(row => row['ସୂଚକାଙ୍କ'] && row['ସୂଚକାଙ୍କ'] !== '')
+                    .filter(
+                      row =>
+                        row['ସୂଚକାଙ୍କ'] &&
+                        row['ସୂଚକାଙ୍କ'] !== '' &&
+                        row['ସୂଚକାଙ୍କ'] !== ':---',
+                    )
                     .map((row, rowIndex) => (
                       <View key={rowIndex} style={styles.tableRow}>
                         <View style={[styles.tableCell, styles.firstColumn]}>
-                          <Text style={styles.indicatorText} numberOfLines={2}>
-                            {row['ସୂଚକାଙ୍କ'].slice(0, 20)}
+                          <Text style={styles.indicatorText} numberOfLines={3}>
+                            {row['ସୂଚକାଙ୍କ']}
                           </Text>
                         </View>
                         {Array.from({ length: 30 }, (_, i) => i + 1).map(
@@ -885,9 +1313,8 @@ const ImageCapture = ({ navigation }) => {
             </View>
           )}
 
-          {/* Action Buttons */}
           <View style={styles.resultsActions}>
-            <TouchableOpacity
+            {/* <TouchableOpacity
               style={[styles.resultsButton, styles.shareButton]}
               onPress={() => {
                 Alert.alert('Share', 'Results shared successfully!');
@@ -895,7 +1322,26 @@ const ImageCapture = ({ navigation }) => {
             >
               <Icon name="share" size={20} color="white" />
               <Text style={styles.resultsButtonText}>Share Results</Text>
+            </TouchableOpacity> */}
+
+            <TouchableOpacity
+              style={[styles.resultsButton, styles.viewAllResponsesButton]}
+              onPress={navigateToAllResponses}
+            >
+              <Icon name="view-list" size={20} color="white" />
+              <Text style={styles.resultsButtonText}>View All Responses</Text>
             </TouchableOpacity>
+
+            {/* <TouchableOpacity
+              style={[styles.resultsButton, styles.viewLogsButton]}
+              onPress={() => {
+                setShowLogsModal(true);
+                fetchLogs();
+              }}
+            >
+              <Icon name="history" size={20} color="white" />
+              <Text style={styles.resultsButtonText}>View Logs</Text>
+            </TouchableOpacity> */}
 
             <TouchableOpacity
               style={[styles.resultsButton, styles.newButton]}
@@ -920,8 +1366,26 @@ const ImageCapture = ({ navigation }) => {
             <Icon name="arrow-back" size={24} color="#1C1C1E" />
           </TouchableOpacity>
           <Text style={styles.title}>Image Capture</Text>
-          <View style={styles.headerPlaceholder} />
+          <TouchableOpacity style={styles.historyButton}>
+            {/* <Icon name="history" size={24} color="#5856D6" /> */}
+          </TouchableOpacity>
         </View>
+
+        {showAsyncNotification && (
+          <View style={styles.asyncNotification}>
+            <Icon name="schedule" size={20} color="#FF9500" />
+            <Text style={styles.asyncNotificationText}>
+              Your previous image is still processing. You can upload a new
+              image.
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowAsyncNotification(false)}
+              style={styles.asyncCloseButton}
+            >
+              <Icon name="close" size={16} color="#8E8E93" />
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.mainContent}>
           {showPreview && capturedImage && !imageUrl ? (
@@ -1008,13 +1472,16 @@ const ImageCapture = ({ navigation }) => {
 
                 <TouchableOpacity
                   style={[styles.secondaryButton, styles.galleryButton]}
-                  onPress={pickImageFromGallery}
+                  onPress={() => {
+                    setShowLogsModal(true);
+                    fetchLogs();
+                  }}
                 >
                   <Icon name="photo-library" size={24} color="#007AFF" />
                   <Text
                     style={[styles.secondaryButtonText, { lineHeight: 30 }]}
                   >
-                    Choose from Gallery
+                    View History
                   </Text>
                 </TouchableOpacity>
 
@@ -1060,6 +1527,71 @@ const ImageCapture = ({ navigation }) => {
           )}
         </View>
       </ScrollView>
+
+      {/* Logs Modal */}
+      <Modal
+        visible={showLogsModal}
+        animationType="slide"
+        onRequestClose={() => setShowLogsModal(false)}
+      >
+        <SafeAreaView style={styles.container}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity
+              onPress={() => setShowLogsModal(false)}
+              style={styles.modalBackButton}
+            >
+              <Icon name="arrow-back" size={24} color="#1C1C1E" />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>OCR History</Text>
+            <TouchableOpacity
+              onPress={() => {
+                setRefreshing(true);
+                fetchLogs();
+                setTimeout(() => setRefreshing(false), 1000);
+              }}
+              style={styles.refreshButton}
+            >
+              <Icon name="refresh" size={24} color="#5856D6" />
+            </TouchableOpacity>
+          </View>
+
+          {loadingLogs ? (
+            <View style={styles.centerContainer}>
+              <ActivityIndicator size="large" color="#5856D6" />
+              <Text style={styles.loadingText}>Loading logs...</Text>
+            </View>
+          ) : logs.length === 0 ? (
+            <View style={styles.centerContainer}>
+              <Icon name="history-toggle-off" size={60} color="#8E8E93" />
+              <Text style={styles.emptyLogsText}>No logs found</Text>
+              <Text style={styles.emptyLogsSubtext}>
+                Process some images to see history here
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={logs}
+              renderItem={renderLogItem}
+              keyExtractor={item => item.imgId}
+              contentContainerStyle={styles.logsList}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={() => {
+                    setRefreshing(true);
+                    fetchLogs();
+                    setTimeout(() => setRefreshing(false), 1000);
+                  }}
+                  colors={['#5856D6']}
+                />
+              }
+            />
+          )}
+        </SafeAreaView>
+      </Modal>
+
+      {/* Log Details Modal */}
+      {renderLogDetails()}
     </SafeAreaView>
   );
 };
@@ -1089,6 +1621,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#1C1C1E',
+  },
+  historyButton: {
+    padding: 8,
   },
   headerPlaceholder: {
     width: 40,
@@ -1448,18 +1983,54 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '600',
   },
-  processingAnimation: {
+  timeWarningContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 30,
-    gap: 20,
+    backgroundColor: '#FFF3E0',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    width: '100%',
+    gap: 12,
   },
-  processingTip: {
+  timeWarningText: {
     fontSize: 14,
-    color: '#8E8E93',
-    textAlign: 'center',
-    fontStyle: 'italic',
+    color: '#E65100',
+    flex: 1,
+    lineHeight: 20,
+  },
+  cancelProcessingButton: {
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginTop: 20,
+  },
+  cancelProcessingText: {
+    color: '#FF3B30',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Async Notification
+  asyncNotification: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    marginHorizontal: 20,
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 8,
+    gap: 10,
+  },
+  asyncNotificationText: {
+    fontSize: 14,
+    color: '#E65100',
+    flex: 1,
+  },
+  asyncCloseButton: {
+    padding: 4,
   },
   // Results Styles
   resultsContainer: {
@@ -1741,6 +2312,16 @@ const styles = StyleSheet.create({
   shareButton: {
     backgroundColor: '#5856D6',
   },
+  viewAllResponsesButton: {
+    backgroundColor: '#5856D6',
+  },
+  viewLogsButton: {
+    backgroundColor: '#FF9500',
+  },
+  closeButton: {
+    backgroundColor: '#FF3B30',
+    marginTop: 20,
+  },
   newButton: {
     backgroundColor: 'white',
     borderWidth: 2,
@@ -1750,6 +2331,151 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Logs Modal Styles
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5EA',
+  },
+  modalBackButton: {
+    padding: 8,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1C1C1E',
+  },
+  refreshButton: {
+    padding: 8,
+  },
+  logsList: {
+    padding: 20,
+  },
+  logItem: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  logHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 12,
+  },
+  logInfo: {
+    flex: 1,
+  },
+  logImgId: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1C1C1E',
+    marginBottom: 4,
+  },
+  logDate: {
+    fontSize: 12,
+    color: '#8E8E93',
+  },
+  logStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F2F2F7',
+  },
+  logStat: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  logStatValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1C1C1E',
+    marginBottom: 4,
+  },
+  logStatLabel: {
+    fontSize: 11,
+    color: '#8E8E93',
+    textAlign: 'center',
+  },
+  logDetailsContainer: {
+    padding: 20,
+  },
+  logSummaryCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  logSummaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 12,
+  },
+  logSummaryTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1C1C1E',
+  },
+  logInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F2F2F7',
+  },
+  logInfoLabel: {
+    fontSize: 14,
+    color: '#8E8E93',
+  },
+  logInfoValue: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1C1C1E',
+  },
+  emptyLogsText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#8E8E93',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyLogsSubtext: {
+    fontSize: 14,
+    color: '#8E8E93',
+    textAlign: 'center',
+    paddingHorizontal: 40,
   },
 });
 
