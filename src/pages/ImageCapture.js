@@ -52,6 +52,7 @@ const ImageCapture = ({ navigation }) => {
   const [asyncProcessingId, setAsyncProcessingId] = useState(null);
   const [showAsyncNotification, setShowAsyncNotification] = useState(false);
   const processingTimeoutRef = useRef(null);
+  const [deletingLogs, setDeletingLogs] = useState({});
 
   const fetchLogs = async () => {
     setLoadingLogs(true);
@@ -68,7 +69,7 @@ const ImageCapture = ({ navigation }) => {
           timeout: 30000,
         },
       );
-
+      console.log('get data------->', response.data);
       if (response.data && Array.isArray(response.data)) {
         const filteredLogs = response.data.filter(
           log =>
@@ -90,6 +91,115 @@ const ImageCapture = ({ navigation }) => {
     } finally {
       setLoadingLogs(false);
     }
+  };
+
+  const deleteLog = async (imgId, index) => {
+    Alert.alert(
+      'Delete Log',
+      'Are you sure you want to delete this log? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setDeletingLogs(prev => ({ ...prev, [imgId]: true }));
+              console.log('Attempting to delete log with ID:', imgId);
+
+              const response = await axios.post(
+                'https://ocr.thinkzone.in.net/delete-log',
+                {
+                  imageId: imgId,
+                  user_id: 'USR001',
+                },
+                {
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  timeout: 30000,
+                },
+              );
+
+              console.log('Delete response:', response.status, response.data);
+
+              // Check if response indicates success
+              if (response.status === 200) {
+                // Also check the response data for success message
+                if (
+                  response.data &&
+                  response.data.message === 'Delete successful'
+                ) {
+                  // Remove the deleted log from the state
+                  setLogs(prevLogs =>
+                    prevLogs.filter(log => log.imgId !== imgId),
+                  );
+
+                  // If the deleted log is currently selected in details view, close the details
+                  if (selectedLog && selectedLog.imgId === imgId) {
+                    setSelectedLog(null);
+                    setShowLogDetails(false);
+                  }
+
+                  Alert.alert('Success', 'Log deleted successfully');
+                } else {
+                  // The request succeeded but the server returned an error in the response
+                  throw new Error(
+                    response.data?.message || 'Failed to delete log on server',
+                  );
+                }
+              } else {
+                throw new Error(`Server returned status: ${response.status}`);
+              }
+            } catch (error) {
+              console.error('Error deleting log:', error);
+
+              let errorMessage = 'Failed to delete log. Please try again.';
+
+              if (error.response) {
+                // Server responded with an error status
+                if (error.response.status === 404) {
+                  errorMessage =
+                    'Log not found. It may have already been deleted.';
+
+                  // If it's a 404, we should still remove it from the local state
+                  // since it doesn't exist on the server
+                  setLogs(prevLogs =>
+                    prevLogs.filter(log => log.imgId !== imgId),
+                  );
+
+                  if (selectedLog && selectedLog.imgId === imgId) {
+                    setSelectedLog(null);
+                    setShowLogDetails(false);
+                  }
+
+                  Alert.alert('Info', errorMessage);
+                  return; // Exit early since we handled the 404
+                } else if (error.response.status === 400) {
+                  errorMessage = 'Invalid request. Please try again.';
+                } else if (error.response.status >= 500) {
+                  errorMessage = 'Server error. Please try again later.';
+                }
+              } else if (error.request) {
+                // Request was made but no response
+                errorMessage =
+                  'No response from server. Check your internet connection.';
+              } else {
+                // Something else happened
+                errorMessage = error.message || 'Failed to delete log.';
+              }
+
+              Alert.alert('Error', errorMessage);
+            } finally {
+              setDeletingLogs(prev => ({ ...prev, [imgId]: false }));
+            }
+          },
+        },
+      ],
+    );
   };
 
   const handleBackPress = useCallback(() => {
@@ -726,11 +836,12 @@ const ImageCapture = ({ navigation }) => {
     });
   };
 
-  const renderLogItem = ({ item }) => {
+  const renderLogItem = ({ item, index }) => {
     const summary = calculateSummary(item.mlResponse);
     const date = formatDate(
       item._meta?.inserted_at || new Date().toISOString(),
     );
+    const isDeleting = deletingLogs[item.imgId] || false;
 
     return (
       <TouchableOpacity
@@ -739,6 +850,7 @@ const ImageCapture = ({ navigation }) => {
           setSelectedLog(item);
           setShowLogDetails(true);
         }}
+        disabled={isDeleting}
       >
         <View style={styles.logHeader}>
           <Icon name="history" size={20} color="#5856D6" />
@@ -746,30 +858,17 @@ const ImageCapture = ({ navigation }) => {
             <Text style={styles.logImgId}>{item.imgId}</Text>
             <Text style={styles.logDate}>{date}</Text>
           </View>
-        </View>
-        <View style={styles.logStats}>
-          {/* <View style={styles.logStat}>
-            <Text style={styles.logStatValue}>{summary.total}</Text>
-            <Text style={styles.logStatLabel}>Total</Text>
-          </View> */}
-          {/* <View style={styles.logStat}>
-            <View style={styles.symbolCountRow}>
-              {renderSymbol('+')}
-              <Text style={[styles.logStatValue, { color: '#34C759' }]}>
-                {summary.plus}
-              </Text>
-            </View>
-            <Text style={styles.logStatLabel}>Excellent</Text>
-          </View> */}
-          {/* <View style={styles.logStat}>
-            <View style={styles.symbolCountRow}>
-              {renderSymbol('▲')}
-              <Text style={[styles.logStatValue, { color: '#FF9500' }]}>
-                {summary.triangle}
-              </Text>
-            </View>
-            <Text style={styles.logStatLabel}>Good</Text>
-          </View> */}
+          <TouchableOpacity
+            style={styles.deleteLogButton}
+            onPress={() => deleteLog(item.imgId, index)}
+            disabled={isDeleting}
+          >
+            {isDeleting ? (
+              <ActivityIndicator size="small" color="#FF3B30" />
+            ) : (
+              <Icon name="delete" size={20} color="#FF3B30" />
+            )}
+          </TouchableOpacity>
         </View>
       </TouchableOpacity>
     );
@@ -780,23 +879,35 @@ const ImageCapture = ({ navigation }) => {
 
     const summary = calculateSummary(selectedLog.mlResponse);
     const competencies = getCompetencyData(selectedLog.mlResponse);
-    console.log('selectedLog---->', selectedLog);
+    const isDeleting = deletingLogs[selectedLog.imgId] || false;
+
     return (
       <Modal
         visible={showLogDetails}
         animationType="slide"
-        onRequestClose={() => setShowLogDetails(false)}
+        onRequestClose={() => !isDeleting && setShowLogDetails(false)}
       >
         <SafeAreaView style={styles.container}>
           <View style={styles.modalHeader}>
             <TouchableOpacity
-              onPress={() => setShowLogDetails(false)}
+              onPress={() => !isDeleting && setShowLogDetails(false)}
               style={styles.modalBackButton}
+              disabled={isDeleting}
             >
               <Icon name="arrow-back" size={24} color="#1C1C1E" />
             </TouchableOpacity>
             <Text style={styles.modalTitle}>Log Details</Text>
-            <View style={styles.headerPlaceholder} />
+            <TouchableOpacity
+              style={styles.deleteLogDetailsButton}
+              onPress={() => deleteLog(selectedLog.imgId)}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <ActivityIndicator size="small" color="#FF3B30" />
+              ) : (
+                <Icon name="delete" size={24} color="#FF3B30" />
+              )}
+            </TouchableOpacity>
           </View>
 
           <ScrollView contentContainerStyle={styles.logDetailsContainer}>
@@ -817,7 +928,7 @@ const ImageCapture = ({ navigation }) => {
               </View>
             </View>
 
-            <View style={styles.summaryCard}>
+            {/* <View style={styles.summaryCard}>
               <View style={styles.summaryHeader}>
                 <Icon name="assessment" size={24} color="#5856D6" />
                 <Text style={styles.summaryTitle}>Assessment Summary</Text>
@@ -859,7 +970,7 @@ const ImageCapture = ({ navigation }) => {
                   <Text style={styles.statLabel}>Needs Improvement</Text>
                 </View>
               </View>
-            </View>
+            </View> */}
 
             <View style={styles.tableContainer}>
               <View style={styles.tableHeader}>
@@ -965,10 +1076,6 @@ const ImageCapture = ({ navigation }) => {
                           '୩୦',
                         ].map((odiaNum, colIndex) => {
                           const score = row[odiaNum];
-                          console.log(
-                            `Row ${rowIndex}, Column ${odiaNum}:`,
-                            score,
-                          );
                           return (
                             <View key={colIndex} style={styles.tableCell}>
                               {renderSymbol(score)}
@@ -983,7 +1090,8 @@ const ImageCapture = ({ navigation }) => {
 
             <TouchableOpacity
               style={[styles.resultsButton, styles.closeButton]}
-              onPress={() => setShowLogDetails(false)}
+              onPress={() => !isDeleting && setShowLogDetails(false)}
+              disabled={isDeleting}
             >
               <Icon name="close" size={20} color="#FFFFFF" />
               <Text style={styles.resultsButtonText}>Close</Text>
@@ -1069,31 +1177,6 @@ const ImageCapture = ({ navigation }) => {
                 image and check results later.
               </Text>
             </View>
-
-            {/* <TouchableOpacity
-              style={styles.cancelProcessingButton}
-              onPress={() => {
-                Alert.alert(
-                  'Cancel Processing',
-                  'Are you sure you want to cancel?',
-                  [
-                    {
-                      text: 'No',
-                      style: 'cancel',
-                    },
-                    {
-                      text: 'Yes',
-                      onPress: () => {
-                        setIsProcessing(false);
-                        resetToInitialView();
-                      },
-                    },
-                  ],
-                );
-              }}
-            >
-              <Text style={styles.cancelProcessingText}>Cancel Processing</Text>
-            </TouchableOpacity> */}
           </View>
         </View>
       </SafeAreaView>
@@ -1314,16 +1397,6 @@ const ImageCapture = ({ navigation }) => {
           )}
 
           <View style={styles.resultsActions}>
-            {/* <TouchableOpacity
-              style={[styles.resultsButton, styles.shareButton]}
-              onPress={() => {
-                Alert.alert('Share', 'Results shared successfully!');
-              }}
-            >
-              <Icon name="share" size={20} color="white" />
-              <Text style={styles.resultsButtonText}>Share Results</Text>
-            </TouchableOpacity> */}
-
             <TouchableOpacity
               style={[styles.resultsButton, styles.viewAllResponsesButton]}
               onPress={navigateToAllResponses}
@@ -1331,17 +1404,6 @@ const ImageCapture = ({ navigation }) => {
               <Icon name="view-list" size={20} color="white" />
               <Text style={styles.resultsButtonText}>View All Responses</Text>
             </TouchableOpacity>
-
-            {/* <TouchableOpacity
-              style={[styles.resultsButton, styles.viewLogsButton]}
-              onPress={() => {
-                setShowLogsModal(true);
-                fetchLogs();
-              }}
-            >
-              <Icon name="history" size={20} color="white" />
-              <Text style={styles.resultsButtonText}>View Logs</Text>
-            </TouchableOpacity> */}
 
             <TouchableOpacity
               style={[styles.resultsButton, styles.newButton]}
@@ -1543,16 +1605,26 @@ const ImageCapture = ({ navigation }) => {
               <Icon name="arrow-back" size={24} color="#1C1C1E" />
             </TouchableOpacity>
             <Text style={styles.modalTitle}>OCR History</Text>
-            <TouchableOpacity
-              onPress={() => {
-                setRefreshing(true);
-                fetchLogs();
-                setTimeout(() => setRefreshing(false), 1000);
-              }}
-              style={styles.refreshButton}
-            >
-              <Icon name="refresh" size={24} color="#5856D6" />
-            </TouchableOpacity>
+            <View style={styles.modalHeaderActions}>
+              {/* {logs.length > 0 && (
+                <TouchableOpacity
+                  style={styles.deleteAllButton}
+                  onPress={deleteAllLogs}
+                >
+                  <Icon name="delete-sweep" size={22} color="#FF3B30" />
+                </TouchableOpacity>
+              )} */}
+              {/* <TouchableOpacity
+                onPress={() => {
+                  setRefreshing(true);
+                  fetchLogs();
+                  setTimeout(() => setRefreshing(false), 1000);
+                }}
+                style={styles.refreshButton}
+              >
+                <Icon name="refresh" size={24} color="#5856D6" />
+              </TouchableOpacity> */}
+            </View>
           </View>
 
           {loadingLogs ? (
@@ -2351,6 +2423,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1C1C1E',
   },
+  modalHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  deleteAllButton: {
+    padding: 8,
+  },
   refreshButton: {
     padding: 8,
   },
@@ -2392,6 +2472,9 @@ const styles = StyleSheet.create({
   logDate: {
     fontSize: 12,
     color: '#8E8E93',
+  },
+  deleteLogButton: {
+    padding: 8,
   },
   logStats: {
     flexDirection: 'row',
@@ -2463,6 +2546,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#1C1C1E',
+  },
+  deleteLogDetailsButton: {
+    padding: 8,
   },
   emptyLogsText: {
     fontSize: 18,
