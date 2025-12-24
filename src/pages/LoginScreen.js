@@ -91,7 +91,7 @@ const LoginScreen = ({ navigation, authContext }) => {
       ) {
         const coordinatorData = response.data.coordinator;
         const token = response.data.token;
-
+        console.log('coordinatorData', coordinatorData);
         const userData = {
           coordinatorId: coordinatorData.coordinatorId || authId.trim(),
           coordinatorName: coordinatorData.coordinatorName || 'Coordinator',
@@ -126,10 +126,10 @@ const LoginScreen = ({ navigation, authContext }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar backgroundColor="#fe9c3b" barStyle="light-content" />
+      <StatusBar backgroundColor="#13538a" barStyle="light-content" />
 
       <LinearGradient
-        colors={['#fe9c3b', '#ff8a00', '#ff6b00']}
+        colors={['#13538a', '#1e88e5', '#4fc3f7']}
         style={styles.gradientBackground}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
@@ -182,7 +182,7 @@ const LoginScreen = ({ navigation, authContext }) => {
                     <MaterialIcons
                       name="phone"
                       size={22}
-                      color={isFocused.authId ? '#fe9c3b' : '#999'}
+                      color={isFocused.authId ? '#13538a' : '#999'}
                       style={styles.inputIcon}
                     />
                     <TextInput
@@ -231,7 +231,7 @@ const LoginScreen = ({ navigation, authContext }) => {
                     <MaterialIcons
                       name="lock"
                       size={22}
-                      color={isFocused.password ? '#fe9c3b' : '#999'}
+                      color={isFocused.password ? '#13538a' : '#999'}
                       style={styles.inputIcon}
                     />
                     <TextInput
@@ -276,7 +276,7 @@ const LoginScreen = ({ navigation, authContext }) => {
                     activeOpacity={0.8}
                   >
                     <LinearGradient
-                      colors={['#fe9c3b', '#ff8a00']}
+                      colors={['#13538a', '#13538a']}
                       style={styles.buttonGradient}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
@@ -311,7 +311,7 @@ const LoginScreen = ({ navigation, authContext }) => {
                 {!isKeyboardVisible || height > 700 ? (
                   <View style={styles.footer}>
                     <Text style={styles.footerSubtext}>
-                      For technical support: support@tz.in
+                      For technical support: tech.tz@thinkzone.in
                     </Text>
                   </View>
                 ) : null}
@@ -417,7 +417,7 @@ const styles = StyleSheet.create({
     height: 56,
   },
   inputContainerFocused: {
-    borderColor: '#fe9c3b',
+    borderColor: '#13538a',
     backgroundColor: '#fff',
   },
   inputIcon: {
@@ -439,7 +439,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     height: 56,
     marginBottom: 20,
-    shadowColor: '#fe9c3b',
+    shadowColor: '#13538a',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,

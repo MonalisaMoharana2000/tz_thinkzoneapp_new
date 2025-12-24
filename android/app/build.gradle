@@ -82,8 +82,8 @@ android {
         applicationId "com.nrusingh.teacher_thinkzone1"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 20047
-        versionName "2.4.7"
+        versionCode 20048
+        versionName "2.4.8"
     }
     signingConfigs {
         debug {

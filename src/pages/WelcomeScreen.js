@@ -97,7 +97,7 @@ const WelcomeScreen = ({ navigation, route, authContext }) => {
             <MaterialIcons
               name="school"
               size={isTablet ? 48 : 40}
-              color="#FF6B35"
+              color="#13538a"
             />
           </View>
           <Text style={styles.title}>ଓଡ଼ିଆ ପଢିବା ମୂଲ୍ୟାୟନ</Text>
@@ -110,7 +110,7 @@ const WelcomeScreen = ({ navigation, route, authContext }) => {
             <MaterialIcons
               name="assessment"
               size={isTablet ? 80 : 64}
-              color="#FF6B35"
+              color="#13538a"
             />
           </View>
           <Text style={styles.heroText}>ଉନ୍ନତ ଶିକ୍ଷା ପାଇଁ ଆଧୁନିକ ମୂଲ୍ୟାୟନ</Text>
@@ -158,7 +158,7 @@ const WelcomeScreen = ({ navigation, route, authContext }) => {
                 <MaterialIcons
                   name="mic"
                   size={isTablet ? 40 : 32}
-                  color="#FF9500"
+                  color="#13538a"
                 />
                 <View style={[styles.cardTag, styles.orfTag]}>
                   <Text style={styles.tagText}>ORF</Text>
@@ -170,7 +170,7 @@ const WelcomeScreen = ({ navigation, route, authContext }) => {
                   ଶବ୍ଦ ରେକର୍ଡ କରି ପଢିବା କ୍ଷମତା ପରୀକ୍ଷା କରନ୍ତୁ
                 </Text>
               </View>
-              <MaterialIcons name="arrow-forward" size={24} color="#FF9500" />
+              <MaterialIcons name="arrow-forward" size={24} color="#13538a" />
             </View>
           </TouchableOpacity>
         </View>
@@ -253,7 +253,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: isTablet ? 26 : 22,
     fontWeight: '800',
-    color: '#FF6B35',
+    color: '#13538a',
     textAlign: 'center',
     marginBottom: 5,
   },
@@ -331,7 +331,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   orfTag: {
-    backgroundColor: '#FF9500',
+    backgroundColor: '#13538a',
   },
   tagText: {
     color: '#FFFFFF',
@@ -416,12 +416,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   logoutButton: {
-    backgroundColor: '#FF6B35',
+    backgroundColor: '#13538a',
     borderRadius: 12,
     paddingHorizontal: 35, // Increased padding
     paddingVertical: 16, // Increased padding
     elevation: 5,
-    shadowColor: '#FF6B35',
+    shadowColor: '#13538a',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
@@ -430,7 +430,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#FF5500',
+    borderColor: '#13538a',
   },
   logoutButtonContent: {
     flexDirection: 'row',

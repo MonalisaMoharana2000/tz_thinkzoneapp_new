@@ -207,7 +207,7 @@ const AllResponsesScreen = ({ navigation }) => {
               >
                 <Text style={styles.symbolText}>▲</Text>
               </View>
-              <Text style={[styles.statNumber, { color: '#FF9500' }]}>
+              <Text style={[styles.statNumber, { color: '#13538a' }]}>
                 {summary.triangle}
               </Text>
             </View>
@@ -642,7 +642,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#34C75920',
   },
   triangleSymbol: {
-    backgroundColor: '#FF950020',
+    backgroundColor: '#13538a20',
   },
   starSymbol: {
     backgroundColor: '#FF3B3020',

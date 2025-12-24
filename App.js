@@ -74,7 +74,7 @@ const App = () => {
           backgroundColor: '#f5f5f5',
         }}
       >
-        <ActivityIndicator size="large" color="#fe9c3b" />
+        <ActivityIndicator size="large" color="#13538a" />
       </View>
     );
   }

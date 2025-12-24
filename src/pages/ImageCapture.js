@@ -953,7 +953,7 @@ const ImageCapture = ({ navigation }) => {
                 <View style={styles.statItem}>
                   <View style={styles.symbolCountRow}>
                     {renderSymbol('▲')}
-                    <Text style={[styles.statNumber, { color: '#FF9500' }]}>
+                    <Text style={[styles.statNumber, { color: '#13538a' }]}>
                       {summary.triangle}
                     </Text>
                   </View>
@@ -1171,7 +1171,7 @@ const ImageCapture = ({ navigation }) => {
             </View>
 
             <View style={styles.timeWarningContainer}>
-              <Icon name="schedule" size={24} color="#FF9500" />
+              <Icon name="schedule" size={24} color="#13538a" />
               <Text style={styles.timeWarningText}>
                 If processing takes more than 1 minute, you can upload a new
                 image and check results later.
@@ -1238,7 +1238,7 @@ const ImageCapture = ({ navigation }) => {
               <View style={styles.statItem}>
                 <View style={styles.symbolCountRow}>
                   {renderSymbol('▲')}
-                  <Text style={[styles.statNumber, { color: '#FF9500' }]}>
+                  <Text style={[styles.statNumber, { color: '#13538a' }]}>
                     {summary.triangle}
                   </Text>
                 </View>
@@ -1435,7 +1435,7 @@ const ImageCapture = ({ navigation }) => {
 
         {showAsyncNotification && (
           <View style={styles.asyncNotification}>
-            <Icon name="schedule" size={20} color="#FF9500" />
+            <Icon name="schedule" size={20} color="#13538a" />
             <Text style={styles.asyncNotificationText}>
               Your previous image is still processing. You can upload a new
               image.
@@ -1508,7 +1508,7 @@ const ImageCapture = ({ navigation }) => {
             <View style={styles.initialView}>
               <View style={styles.attendanceContent}>
                 <View style={styles.attendanceIllustration}>
-                  <Icon name="photo-camera" size={80} color="#fe9c3b" />
+                  <Icon name="photo-camera" size={80} color="#13538a" />
                   <View style={styles.illustrationCircle} />
                 </View>
 
@@ -2271,7 +2271,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#34C75920',
   },
   triangleSymbol: {
-    backgroundColor: '#FF950020',
+    backgroundColor: '#13538a20',
   },
   starSymbol: {
     backgroundColor: '#FF3B3020',
@@ -2388,7 +2388,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#5856D6',
   },
   viewLogsButton: {
-    backgroundColor: '#FF9500',
+    backgroundColor: '#13538a',
   },
   closeButton: {
     backgroundColor: '#FF3B30',

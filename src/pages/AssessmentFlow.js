@@ -71,15 +71,20 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
   const [selectedUdiseCode, setSelectedUdiseCode] = useState('');
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedGrade, setSelectedGrade] = useState('');
+  const [validationError, setValidationError] = useState('');
 
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [user, setUser] = useState(propUser);
+  const [playbackPosition, setPlaybackPosition] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
 
   const [selectedStudentRoll, setSelectedStudentRoll] = useState(null);
   const [selectedStudentId, setSelectedStudentId] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState('');
   const [completedStudents, setCompletedStudents] = useState([]);
   const [pendingStudents, setPendingStudents] = useState([]);
+  const [draftedStudents, setDraftedStudents] = useState([]); // New state for drafted students
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [studentNumber, setStudentNumber] = useState('');
   const [isSavingStudent, setIsSavingStudent] = useState(false);
@@ -127,6 +132,59 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
   const [selectedDraftForDetail, setSelectedDraftForDetail] = useState(null);
   const [playingDraftId, setPlayingDraftId] = useState(null);
   const [uploadingDraftId, setUploadingDraftId] = useState(null);
+
+  // New state for tracking student status
+  const [studentStatusMap, setStudentStatusMap] = useState({});
+
+  // State for showing delete confirmation
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [studentToDelete, setStudentToDelete] = useState(null);
+
+  const validateStudentNumber = value => {
+    if (!value.trim()) {
+      setValidationError('ରୋଲ୍ ନମ୍ବର ଦିଅନ୍ତୁ');
+      return false;
+    }
+
+    const numValue = parseInt(value, 10);
+
+    // Check if it's a valid number
+    if (isNaN(numValue)) {
+      setValidationError('ବୈଧ ସଂଖ୍ୟା ଦିଅନ୍ତୁ');
+      return false;
+    }
+
+    // Check for negative numbers
+    if (numValue < 0) {
+      setValidationError('ନକାରାତ୍ମକ ସଂଖ୍ୟା ସ୍ୱୀକାର୍ୟ ନୁହେଁ');
+      return false;
+    }
+
+    // Check for zero
+    if (numValue === 0) {
+      setValidationError('ରୋଲ୍ ନମ୍ବର 0 ହୋଇପାରିବ ନାହିଁ');
+      return false;
+    }
+
+    // Check for reasonable roll number range (1-9999)
+    if (numValue > 9999) {
+      setValidationError('ରୋଲ୍ ନମ୍ବର 9999 ରୁ ଅଧିକ ହେବ ନାହିଁ');
+      return false;
+    }
+
+    // Check if roll number already exists (optional)
+    const existingRoll = students.find(
+      student => student.rollNumber?.toString() === value,
+    );
+    if (existingRoll) {
+      setValidationError(`ରୋଲ୍ ନମ୍ବର ${value} ପୂର୍ବରୁ ବ୍ୟବହୃତ`);
+      return false;
+    }
+
+    // Clear any previous error
+    setValidationError('');
+    return true;
+  };
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -200,6 +258,60 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
     return () => backHandler.remove();
   }, [currentSection, navigation]);
 
+  // New function to get student status
+  const getStudentStatus = student => {
+    const rollNumberStr = student.rollNumber?.toString();
+
+    // Check if completed (uploaded to server)
+    if (student.hasORF === true) {
+      return 'completed';
+    }
+
+    // Check if has draft
+    if (
+      draftRecordings.some(
+        draft =>
+          draft.rollNumber?.toString() === rollNumberStr &&
+          draft.class === student.class,
+      )
+    ) {
+      return 'drafted';
+    }
+
+    return 'pending';
+  };
+
+  // Update student status map when draftRecordings changes
+  useEffect(() => {
+    const updateStudentStatus = () => {
+      const newStatusMap = {};
+      students.forEach(student => {
+        newStatusMap[student.rollNumber] = getStudentStatus(student);
+      });
+      setStudentStatusMap(newStatusMap);
+    };
+
+    updateStudentStatus();
+  }, [draftRecordings, students]);
+
+  // Function to check if student has draft
+  const hasDraft = student => {
+    return draftRecordings.some(
+      draft =>
+        draft.rollNumber?.toString() === student.rollNumber?.toString() &&
+        draft.class === student.class,
+    );
+  };
+
+  // Function to get draft for a student
+  const getStudentDraft = student => {
+    return draftRecordings.find(
+      draft =>
+        draft.rollNumber?.toString() === student.rollNumber?.toString() &&
+        draft.class === student.class,
+    );
+  };
+
   // New function to show draft details
   const showDraftDetails = draft => {
     setSelectedDraftForDetail(draft);
@@ -261,6 +373,11 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                     }
                     return prev;
                   });
+
+                  // Remove from drafted students
+                  setDraftedStudents(prev =>
+                    prev.filter(roll => roll !== draft.rollNumber?.toString()),
+                  );
 
                   setStudents(prevStudents =>
                     prevStudents.map(student =>
@@ -352,6 +469,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           assessmentType: 'ORF',
           assessmentDate: new Date().toISOString(),
           status: 'completed',
+          gender: gender,
         };
 
         const response = await API.post(`saveOrf`, body);
@@ -622,6 +740,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         const formattedStudents = [];
         const completed = [];
         const pending = [];
+        const drafted = [];
 
         if (Array.isArray(studentsData)) {
           studentsData.forEach((student, index) => {
@@ -661,10 +780,20 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         setStudents(formattedStudents);
         setCompletedStudents(completed);
         setPendingStudents(pending);
+
+        // Load drafts and update drafted students
+        await loadDraftRecordings();
+
+        // Update drafted students after loading drafts
+        const draftRollNumbers = draftRecordings
+          .filter(draft => draft.class === classId)
+          .map(draft => draft.rollNumber?.toString());
+        setDraftedStudents(draftRollNumbers);
       } else {
         setStudents([]);
         setCompletedStudents([]);
         setPendingStudents([]);
+        setDraftedStudents([]);
       }
     } catch (error) {
       console.error('Error fetching students with ORF status:', error);
@@ -701,12 +830,14 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         setPendingStudents(
           formattedStudents.map(s => s.rollNumber?.toString()),
         );
+        setDraftedStudents([]);
       }
     } catch (fallbackError) {
       console.error('Fallback API also failed:', fallbackError);
       setStudents([]);
       setCompletedStudents([]);
       setPendingStudents([]);
+      setDraftedStudents([]);
     }
   };
 
@@ -765,7 +896,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
   };
 
   const handleAddStudent = async () => {
-    if (!studentNumber.trim()) return;
+    if (!validateStudentNumber(studentNumber)) {
+      return;
+    }
 
     const studentData = {
       rollNumber: parseInt(studentNumber),
@@ -778,6 +911,8 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       block: selectedBlock,
       blockCode: selectedBlockCode,
     };
+
+    console.log(':studentData--->', studentData);
 
     await saveStudentToServer(studentData);
   };
@@ -927,6 +1062,30 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
 
   const playAudio = () => {
     try {
+      // If audio is paused, resume from saved position
+      if (soundObj && isPaused) {
+        soundObj.play(success => {
+          if (success) {
+            console.log('Audio finished playing from resume');
+          } else {
+            console.log('Audio playback failed');
+            Alert.alert('Playback Error', 'Failed to play audio');
+          }
+          soundObj.release();
+          setPlaying(false);
+          setCanStopAudio(false);
+          setSoundObj(null);
+          setIsPaused(false);
+          setPlaybackPosition(0);
+        });
+
+        setPlaying(true);
+        setIsPaused(false);
+        setCanStopAudio(true);
+        return;
+      }
+
+      // Otherwise, load and play from beginning or saved position
       if (soundObj) {
         soundObj.release();
       }
@@ -946,7 +1105,16 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           console.error('Failed to load audio:', error);
           Alert.alert('Playback Error', 'Failed to load audio file');
           setPlaying(false);
+          setIsPaused(false);
           return;
+        }
+
+        // Get the audio duration
+        setAudioDuration(newSound.getDuration());
+
+        // If we have a saved playback position, start from there
+        if (playbackPosition > 0) {
+          newSound.setCurrentTime(playbackPosition);
         }
 
         newSound.play(success => {
@@ -960,6 +1128,8 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           setPlaying(false);
           setCanStopAudio(false);
           setSoundObj(null);
+          setIsPaused(false);
+          setPlaybackPosition(0);
         });
 
         setPlaying(true);
@@ -967,10 +1137,23 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       });
 
       setSoundObj(newSound);
+
+      // Monitor playback position (optional - for progress bar)
+      const interval = setInterval(() => {
+        if (newSound && newSound.isLoaded()) {
+          newSound.getCurrentTime(seconds => {
+            setPlaybackPosition(seconds);
+          });
+        }
+      }, 1000);
+
+      // Clean up interval when component unmounts or audio stops
+      return () => clearInterval(interval);
     } catch (error) {
       console.error('Error in playAudio:', error);
       Alert.alert('Error', 'Failed to play audio');
       setPlaying(false);
+      setIsPaused(false);
     }
   };
 
@@ -980,6 +1163,14 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         soundObj.pause();
         setPlaying(false);
         setCanStopAudio(true);
+        setIsPaused(true);
+
+        // Save the current playback position
+        if (soundObj.isLoaded()) {
+          soundObj.getCurrentTime(seconds => {
+            setPlaybackPosition(seconds);
+          });
+        }
       }
     } catch (error) {
       console.error('Error in pauseAudio:', error);
@@ -993,6 +1184,8 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         soundObj.release();
         setPlaying(false);
         setCanStopAudio(false);
+        setIsPaused(false);
+        setPlaybackPosition(0);
         setSoundObj(null);
       }
     } catch (error) {
@@ -1030,12 +1223,22 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
         );
         setDraftRecordings(sortedDrafts);
+
+        // Update drafted students after loading drafts
+        if (selectedClass) {
+          const draftRollNumbers = sortedDrafts
+            .filter(draft => draft.class === selectedClass)
+            .map(draft => draft.rollNumber?.toString());
+          setDraftedStudents(draftRollNumbers);
+        }
       } else {
         setDraftRecordings([]);
+        setDraftedStudents([]);
       }
     } catch (error) {
       console.error('Error loading draft recordings:', error);
       setDraftRecordings([]);
+      setDraftedStudents([]);
     }
   };
 
@@ -1113,6 +1316,12 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
       );
       setDraftRecordings(sortedDrafts);
+
+      // Update drafted students
+      const draftRollNumbers = sortedDrafts
+        .filter(draft => draft.class === selectedClass)
+        .map(draft => draft.rollNumber?.toString());
+      setDraftedStudents(draftRollNumbers);
 
       console.log('Draft saved successfully:', newDraft.id);
       return newDraft;
@@ -1237,6 +1446,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                 );
                 if (existingDraftsString) {
                   const existingDrafts = JSON.parse(existingDraftsString);
+                  const draftToDelete = existingDrafts.find(
+                    d => d.id === draftId,
+                  );
                   const updatedDrafts = existingDrafts.filter(
                     draft => draft.id !== draftId,
                   );
@@ -1250,6 +1462,15 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                     (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
                   );
                   setDraftRecordings(sortedDrafts);
+
+                  // Update drafted students after deletion
+                  if (draftToDelete && draftToDelete.class === selectedClass) {
+                    setDraftedStudents(prev =>
+                      prev.filter(
+                        roll => roll !== draftToDelete.rollNumber?.toString(),
+                      ),
+                    );
+                  }
 
                   Alert.alert('ସଫଳତା', 'ଡ୍ରାଫ୍ଟ ସଫଳତାର ସହିତ ଡିଲିଟ୍ ହୋଇଛି।');
                 }
@@ -1355,6 +1576,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
               try {
                 await AsyncStorage.removeItem(DRAFT_STORAGE_KEY);
                 setDraftRecordings([]);
+                setDraftedStudents([]);
                 Alert.alert('ସଫଳତା', 'ସମସ୍ତ ଡ୍ରାଫ୍ଟ ସଫଳତାର ସହିତ ଡିଲିଟ୍ ହୋଇଛି।');
               } catch (error) {
                 console.error('Error clearing all drafts:', error);
@@ -1423,6 +1645,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           audioDuration: timeLeft,
           textVersion: textVersion || '1.1.0',
           textDuration: textDuration,
+          gender: gender,
         };
 
         const response = await API.post(`saveOrf`, body);
@@ -1446,6 +1669,10 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           ]);
         }
         setCompletedStudents(prev => [...prev, selectedStudentRoll.toString()]);
+        // Remove from drafted students if they were drafted
+        setDraftedStudents(prev =>
+          prev.filter(roll => roll !== selectedStudentRoll.toString()),
+        );
       } else {
         setUploadStatus('error');
         Alert.alert(
@@ -1505,6 +1732,75 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
     }
   }, [selectedGrade, currentSection, selectedClass]);
 
+  // New function to handle student deletion
+  const handleDeleteStudent = async student => {
+    setStudentToDelete(student);
+    setShowDeleteConfirmation(true);
+  };
+
+  const confirmDeleteStudent = async () => {
+    if (!studentToDelete) return;
+
+    try {
+      setIsLoadingData(true);
+
+      // Call API to delete student
+      const response = await API.delete(`/deleteTempStudent`, {
+        data: {
+          studentId: studentToDelete.studentId,
+          rollNumber: studentToDelete.rollNumber,
+          class: selectedClass,
+          blockCode: selectedBlockCode,
+        },
+      });
+
+      if (response.status === 200) {
+        // Remove student from local state
+        setStudents(prev => prev.filter(s => s.id !== studentToDelete.id));
+
+        // Update status lists
+        setPendingStudents(prev =>
+          prev.filter(roll => roll !== studentToDelete.rollNumber?.toString()),
+        );
+        setCompletedStudents(prev =>
+          prev.filter(roll => roll !== studentToDelete.rollNumber?.toString()),
+        );
+        setDraftedStudents(prev =>
+          prev.filter(roll => roll !== studentToDelete.rollNumber?.toString()),
+        );
+
+        // Remove any drafts for this student
+        const existingDraftsString = await AsyncStorage.getItem(
+          DRAFT_STORAGE_KEY,
+        );
+        if (existingDraftsString) {
+          const existingDrafts = JSON.parse(existingDraftsString);
+          const updatedDrafts = existingDrafts.filter(
+            draft =>
+              draft.rollNumber?.toString() !==
+              studentToDelete.rollNumber?.toString(),
+          );
+          await AsyncStorage.setItem(
+            DRAFT_STORAGE_KEY,
+            JSON.stringify(updatedDrafts),
+          );
+          setDraftRecordings(updatedDrafts);
+        }
+
+        Alert.alert('ସଫଳତା', 'ଶିକ୍ଷାର୍ଥୀ ସଫଳତାର ସହିତ ଡିଲିଟ୍ ହୋଇଛି।');
+      } else {
+        Alert.alert('ତ୍ରୁଟି', 'ଶିକ୍ଷାର୍ଥୀ ଡିଲିଟ୍ କରିବାରେ ବିଫଳ ହେଲା।');
+      }
+    } catch (error) {
+      console.error('Error deleting student:', error);
+      Alert.alert('ତ୍ରୁଟି', 'ଶିକ୍ଷାର୍ଥୀ ଡିଲିଟ୍ କରିବାରେ ବିଫଳ ହେଲା।');
+    } finally {
+      setIsLoadingData(false);
+      setShowDeleteConfirmation(false);
+      setStudentToDelete(null);
+    }
+  };
+
   // New function to render draft details modal
   const renderDraftDetailsModal = () => (
     <Modal
@@ -1530,7 +1826,11 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={styles.draftDetailContent}>
+              <ScrollView
+                style={styles.draftDetailContent}
+                contentContainerStyle={styles.draftDetailContentContainer}
+                showsVerticalScrollIndicator={false}
+              >
                 {/* Student Info Card */}
                 <View style={styles.draftDetailCard}>
                   <View style={styles.draftDetailCardHeader}>
@@ -1650,54 +1950,114 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                   </View>
                 </View>
 
-                {/* Action Buttons */}
-                <View style={styles.draftDetailActions}>
-                  <TouchableOpacity
-                    style={[
-                      styles.draftActionButton,
-                      styles.uploadActionButton,
-                    ]}
-                    onPress={() => {
-                      setDraftDetailModalVisible(false);
-                      uploadDraftToServer(selectedDraftForDetail);
-                    }}
-                    disabled={uploadingDraftId === selectedDraftForDetail.id}
-                  >
-                    {uploadingDraftId === selectedDraftForDetail.id ? (
-                      <ActivityIndicator size="small" color="white" />
-                    ) : (
-                      <>
-                        <MaterialIcons
-                          name="cloud-upload"
-                          size={20}
-                          color="white"
-                        />
-                        <Text style={styles.draftActionButtonText}>
-                          ଅପଲୋଡ୍ କରନ୍ତୁ
-                        </Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
+                {/* Action Buttons - Fixed with bottom padding */}
+                <View style={styles.draftDetailActionsContainer}>
+                  <View style={styles.draftDetailActions}>
+                    <TouchableOpacity
+                      style={[
+                        styles.draftActionButton,
+                        styles.uploadActionButton,
+                      ]}
+                      onPress={() => {
+                        setDraftDetailModalVisible(false);
+                        uploadDraftToServer(selectedDraftForDetail);
+                      }}
+                      disabled={uploadingDraftId === selectedDraftForDetail.id}
+                    >
+                      {uploadingDraftId === selectedDraftForDetail.id ? (
+                        <ActivityIndicator size="small" color="white" />
+                      ) : (
+                        <>
+                          <MaterialIcons
+                            name="cloud-upload"
+                            size={20}
+                            color="white"
+                          />
+                          <Text style={styles.draftActionButtonText}>
+                            ଅପଲୋଡ୍ କରନ୍ତୁ
+                          </Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={[
-                      styles.draftActionButton,
-                      styles.deleteActionButton,
-                    ]}
-                    onPress={() => {
-                      setDraftDetailModalVisible(false);
-                      deleteDraftRecording(selectedDraftForDetail.id);
-                    }}
-                  >
-                    <MaterialIcons name="delete" size={20} color="white" />
-                    <Text style={styles.draftActionButtonText}>
-                      ଡିଲିଟ୍ କରନ୍ତୁ
-                    </Text>
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.draftActionButton,
+                        styles.deleteActionButton,
+                      ]}
+                      onPress={() => {
+                        setDraftDetailModalVisible(false);
+                        deleteDraftRecording(selectedDraftForDetail.id);
+                      }}
+                    >
+                      <MaterialIcons name="delete" size={20} color="white" />
+                      <Text style={styles.draftActionButtonText}>
+                        ଡିଲିଟ୍ କରନ୍ତୁ
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </ScrollView>
             </>
           )}
+        </View>
+      </View>
+    </Modal>
+  );
+
+  // New function to render delete confirmation modal
+  const renderDeleteConfirmationModal = () => (
+    <Modal
+      visible={showDeleteConfirmation}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={() => setShowDeleteConfirmation(false)}
+    >
+      <View style={styles.deleteModalOverlay}>
+        <View style={styles.deleteModalContainer}>
+          <View style={styles.deleteModalIcon}>
+            <MaterialIcons name="warning" size={60} color="#FF6B6B" />
+          </View>
+
+          <Text style={styles.deleteModalTitle}>ଶିକ୍ଷାର୍ଥୀ ଡିଲିଟ୍ କରନ୍ତୁ</Text>
+
+          <Text style={styles.deleteModalMessage}>
+            ଆପଣ ନିଶ୍ଚିତ କି ଶିକ୍ଷାର୍ଥୀ{'\n'}
+            <Text style={styles.deleteModalStudentName}>
+              {studentToDelete?.studentName} (ରୋଲ୍:{' '}
+              {studentToDelete?.rollNumber})
+            </Text>
+            {'\n'}
+            ଡିଲିଟ୍ କରିବେ? ଏହା ପଛକୁ ଆଣିହେବ ନାହିଁ।
+          </Text>
+
+          <View style={styles.deleteModalButtons}>
+            <TouchableOpacity
+              style={[styles.deleteModalButton, styles.deleteModalCancelButton]}
+              onPress={() => {
+                setShowDeleteConfirmation(false);
+                setStudentToDelete(null);
+              }}
+              disabled={isLoadingData}
+            >
+              <Text style={styles.deleteModalCancelText}>ବାତିଲ୍</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.deleteModalButton,
+                styles.deleteModalConfirmButton,
+              ]}
+              onPress={confirmDeleteStudent}
+              disabled={isLoadingData}
+            >
+              {isLoadingData ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <Text style={styles.deleteModalConfirmText}>ଡିଲିଟ୍ କରନ୍ତୁ</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -1723,7 +2083,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       <View style={styles.draftsContainer}>
         <View style={styles.draftsHeader}>
           <View style={styles.draftsHeaderLeft}>
-            <MaterialIcons name="folder-special" size={24} color="#FF9800" />
+            <MaterialIcons name="folder-special" size={24} color="red" />
             <Text style={styles.draftsTitle}>ସେଭ୍ ହୋଇଥିବା ଡ୍ରାଫ୍ଟଗୁଡିକ</Text>
           </View>
           <Text style={styles.draftsCount}>{draftRecordings.length}</Text>
@@ -1842,7 +2202,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
               navigation.navigate('Welcome');
             }}
           >
-            <MaterialIcons name="arrow-back" size={25} color="#050505ff" />
+            <MaterialIcons name="arrow-back" size={25} color="white" />
           </TouchableOpacity>
           <Text style={styles.title}>
             {user?.userType === 'observer' ? 'ORF ମୂଲ୍ୟାୟନ ' : 'ORF ମୂଲ୍ୟାୟନ '}
@@ -2033,6 +2393,11 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
 
     const selectedStudentIsCompleted = isSelectedStudentCompleted();
 
+    // Count students by status
+    const completedCount = completedStudents.length;
+    const draftedCount = draftedStudents.length;
+    const pendingCount = students.length - completedCount - draftedCount;
+
     return (
       <View style={styles.fullContainer}>
         <View style={styles.header}>
@@ -2041,7 +2406,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
               style={styles.backButton}
               onPress={() => setCurrentSection('schoolInfo')}
             >
-              <MaterialIcons name="arrow-back" size={25} color="#050505ff" />
+              <MaterialIcons name="arrow-back" size={25} color="white" />
             </TouchableOpacity>
             <Text style={[styles.title, { lineHeight: 40 }]}>
               ଶିକ୍ଷାର୍ଥୀ ଚୟନ କରନ୍ତୁ
@@ -2049,7 +2414,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           </View>
 
           {/* Drafts Button in Header */}
-          {draftRecordings.length > 0 && (
+          {/* {draftRecordings.length > 0 && (
             <TouchableOpacity
               style={styles.draftsHeaderButton}
               onPress={() => setShowDraftsModal(true)}
@@ -2061,14 +2426,14 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                 </Text>
               </View>
             </TouchableOpacity>
-          )}
+          )} */}
         </View>
 
         {/* Stats Card */}
         <View style={styles.statsCard}>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <MaterialIcons name="class" size={24} color="#fe9c3b" />
+            <MaterialIcons name="class" size={24} color="#13538a" />
             <View style={styles.statTextContainer}>
               <Text style={styles.statLabel}>ଶ୍ରେଣୀ</Text>
               <Text style={styles.statValue}>Class {selectedClass}</Text>
@@ -2079,15 +2444,23 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
             <MaterialIcons name="check-circle" size={24} color="#4CAF50" />
             <View style={styles.statTextContainer}>
               <Text style={styles.statLabel}>Completed</Text>
-              <Text style={styles.statValue}>{completedStudents.length}</Text>
+              <Text style={styles.statValue}>{completedCount}</Text>
             </View>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <MaterialIcons name="pending" size={24} color="#FF9800" />
+            <MaterialIcons name="save" size={24} color="#f44336" />
+            <View style={styles.statTextContainer}>
+              <Text style={styles.statLabel}>Drafted</Text>
+              <Text style={styles.statValue}>{draftedCount}</Text>
+            </View>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <MaterialIcons name="pending" size={24} color="#13538a" />
             <View style={styles.statTextContainer}>
               <Text style={styles.statLabel}>Pending</Text>
-              <Text style={styles.statValue}>{pendingStudents.length}</Text>
+              <Text style={styles.statValue}>{pendingCount}</Text>
             </View>
           </View>
         </View>
@@ -2137,7 +2510,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                     <MaterialIcons
                       name="person-add"
                       size={28}
-                      color="#fe9c3b"
+                      color="#13538a"
                     />
                     <Text style={styles.modalTitle}>
                       ନୂତନ ଶିକ୍ଷାର୍ଥୀ ଯୋଡ଼ନ୍ତୁ
@@ -2152,14 +2525,49 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                     <MaterialIcons name="badge" size={20} color="#666" />
                     <TextInput
                       value={studentNumber}
-                      onChangeText={setStudentNumber}
+                      onChangeText={text => {
+                        // Remove any non-numeric characters
+                        const numericValue = text.replace(/[^0-9]/g, '');
+
+                        // Prevent leading zeros (except for single '0')
+                        if (
+                          numericValue.length > 1 &&
+                          numericValue.startsWith('0')
+                        ) {
+                          setStudentNumber(numericValue.substring(1));
+                        } else {
+                          setStudentNumber(numericValue);
+                        }
+
+                        // Clear error when user starts typing
+                        if (validationError) {
+                          setValidationError('');
+                        }
+                      }}
                       keyboardType="numeric"
                       placeholder="ଉଦାହରଣ: 25"
                       style={styles.modalInput}
                       editable={!isSavingStudent}
                       placeholderTextColor="#999"
+                      maxLength={4} // Limit to 4 digits (reasonable for roll numbers)
+                      onBlur={() => {
+                        // Validate on blur
+                        validateStudentNumber(studentNumber);
+                      }}
                     />
                   </View>
+
+                  {/* Validation Error Message */}
+                  {validationError ? (
+                    <View style={styles.errorContainer}>
+                      <MaterialIcons
+                        name="error-outline"
+                        size={16}
+                        color="#f44336"
+                      />
+                      <Text style={styles.errorText}>{validationError}</Text>
+                    </View>
+                  ) : null}
 
                   {/* Gender Selection */}
                   <View style={styles.genderContainer}>
@@ -2186,7 +2594,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                         <MaterialIcons
                           name="male"
                           size={20}
-                          color={gender === 'male' ? '#4a6fa5' : '#666'}
+                          color={gender === 'male' ? '#13538a' : '#666'}
                         />
                         <Text
                           style={[
@@ -2237,7 +2645,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
 
                   {isSavingStudent ? (
                     <View style={styles.savingContainer}>
-                      <ActivityIndicator size="small" color="#fe9c3b" />
+                      <ActivityIndicator size="small" color="#13538a" />
                       <Text style={styles.savingText}>ସେଭ୍ ହେଉଛି...</Text>
                     </View>
                   ) : (
@@ -2247,6 +2655,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                           setIsAddModalVisible(false);
                           setStudentNumber('');
                           setGender('male');
+                          setValidationError('');
                         }}
                         style={styles.modalCancelButton}
                       >
@@ -2254,11 +2663,16 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                       </TouchableOpacity>
 
                       <TouchableOpacity
-                        onPress={handleAddStudent}
+                        onPress={async () => {
+                          if (validateStudentNumber(studentNumber)) {
+                            await handleAddStudent();
+                          }
+                        }}
                         disabled={!studentNumber.trim()}
                         style={[
                           styles.modalOkButton,
-                          !studentNumber.trim() && styles.disabledButton,
+                          (!studentNumber.trim() || validationError) &&
+                            styles.disabledButton,
                         ]}
                       >
                         <Text style={styles.modalOkButtonText}>
@@ -2288,6 +2702,20 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                 <Text style={styles.listTitle}>
                   ଶିକ୍ଷାର୍ଥୀ ତାଲିକା ({students.length})
                 </Text>
+                <View style={styles.statusLegend}>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, styles.completedDot]} />
+                    <Text style={styles.legendText}>ସମ୍ପୂର୍ଣ୍ଣ</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, styles.draftedDot]} />
+                    <Text style={styles.legendText}>ଡ୍ରାଫ୍ଟ୍</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, styles.pendingDot]} />
+                    <Text style={styles.legendText}>ବାକି</Text>
+                  </View>
+                </View>
               </View>
 
               <FlatList
@@ -2297,6 +2725,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                 contentContainerStyle={styles.listContent}
                 renderItem={({ item, index }) => {
                   const isCompleted = item.hasORF === true;
+                  const hasDraftForStudent = hasDraft(item);
+                  const studentDraft = getStudentDraft(item);
+                  const status = getStudentStatus(item);
                   const isSelected =
                     selectedStudentRoll?.toString() ===
                     item.rollNumber?.toString();
@@ -2306,8 +2737,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                       style={[
                         styles.studentCard,
                         isSelected && styles.selectedStudentCard,
-                        isCompleted && styles.completedStudentCard,
-                        !isCompleted && styles.pendingStudentCard,
+                        status === 'completed' && styles.completedStudentCard,
+                        status === 'drafted' && styles.draftedStudentCard,
+                        status === 'pending' && styles.pendingStudentCard,
                       ]}
                       onPress={() => {
                         if (!isCompleted) {
@@ -2320,68 +2752,146 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                       }}
                       disabled={isCompleted}
                       activeOpacity={isCompleted ? 1 : 0.7}
+                      // onLongPress={() => {
+                      //   if (!isCompleted) {
+                      //     handleDeleteStudent(item);
+                      //   }
+                      // }}
                     >
                       <View style={styles.studentCardLeft}>
                         <View
                           style={[
                             styles.rollNumberBadge,
                             isSelected && styles.selectedRollBadge,
-                            isCompleted && styles.completedRollBadge,
-                            !isCompleted && styles.pendingRollBadge,
+                            status === 'completed' && styles.completedRollBadge,
+                            status === 'drafted' && styles.draftedRollBadge,
+                            status === 'pending' && styles.pendingRollBadge,
                           ]}
                         >
                           <Text
                             style={[
                               styles.rollNumberText,
-                              (isSelected || isCompleted) &&
+                              (isSelected ||
+                                status === 'completed' ||
+                                status === 'drafted') &&
                                 styles.rollNumberTextSelected,
                             ]}
                           >
                             {item.rollNumber}
                           </Text>
+
+                          {/* Status Icon on Roll Badge */}
+                          {status === 'completed' ? (
+                            <View style={styles.rollBadgeIcon}>
+                              <MaterialIcons
+                                name="check"
+                                size={10}
+                                color="white"
+                              />
+                            </View>
+                          ) : status === 'drafted' ? (
+                            <View style={styles.rollBadgeIcon}>
+                              <MaterialIcons
+                                name="save"
+                                size={10}
+                                color="white"
+                              />
+                            </View>
+                          ) : null}
                         </View>
                         <View style={styles.studentInfo}>
-                          <Text style={styles.studentName}>
-                            {item.studentName || `Student ${item.rollNumber}`}
+                          <View style={styles.studentNameRow}>
+                            <Text style={styles.studentName}>
+                              {item.studentName || `Student ${item.rollNumber}`}
+                            </Text>
                             {item.gender && (
                               <MaterialIcons
-                                name={item.gender}
+                                name={
+                                  item.gender === 'male' ? 'male' : 'female'
+                                }
                                 size={14}
                                 color="#666"
                                 style={{ marginLeft: 6 }}
                               />
                             )}
-                          </Text>
+                          </View>
                           <View style={styles.studentMeta}>
                             <Text style={styles.studentId}>
                               ID: {item.studentId || 'N/A'}
                             </Text>
+                            {studentDraft && (
+                              <View style={styles.draftBadge}>
+                                <MaterialIcons
+                                  name="mic"
+                                  size={10}
+                                  color="red"
+                                />
+                                <Text style={styles.draftBadgeText}>
+                                  {studentDraft.duration || 0}s
+                                </Text>
+                              </View>
+                            )}
                           </View>
                         </View>
                       </View>
 
                       <View style={styles.studentCardRight}>
-                        {isCompleted ? (
+                        {status === 'completed' ? (
                           <View style={styles.completedStatus}>
-                            <MaterialIcons
-                              name="check-circle"
-                              size={20}
-                              color="#4CAF50"
-                            />
-                            <Text style={styles.completedText}>
-                              ମୂଲ୍ୟାୟନ ସମ୍ପୂର୍ଣ୍ଣ
-                            </Text>
+                            <View style={styles.statusIconContainer}>
+                              <MaterialIcons
+                                name="check-circle"
+                                size={18}
+                                color="#4CAF50"
+                              />
+                            </View>
+                            <Text style={styles.completedText}>ସମ୍ପୂର୍ଣ୍ଣ</Text>
+                          </View>
+                        ) : status === 'drafted' ? (
+                          <View style={styles.draftedStatus}>
+                            <View style={styles.statusIconContainer}>
+                              <MaterialIcons
+                                name="save"
+                                size={18}
+                                color="red"
+                              />
+                            </View>
+                            <Text style={styles.draftedText}>ଡ୍ରାଫ୍ଟ୍</Text>
                           </View>
                         ) : (
                           <View style={styles.pendingStatus}>
-                            <MaterialIcons
-                              name="pending"
-                              size={20}
-                              color="#FF9800"
-                            />
-                            <Text style={styles.pendingText}>ବାକି ଅଛି</Text>
+                            <View style={styles.statusIconContainer}>
+                              <MaterialIcons
+                                name="pending"
+                                size={18}
+                                color="#13538a"
+                              />
+                            </View>
+                            <Text style={styles.pendingText}>ବାକି</Text>
                           </View>
                         )}
+
+                        {/* Delete button for drafted and pending students */}
+                        {/* {(status === 'drafted' || status === 'pending') && (
+                          <TouchableOpacity
+                            style={[
+                              styles.deleteButton,
+                              status === 'drafted' &&
+                                styles.deleteButtonDrafted,
+                              status === 'pending' &&
+                                styles.deleteButtonPending,
+                            ]}
+                            onPress={() => handleDeleteStudent(item)}
+                          >
+                            <MaterialIcons
+                              name="delete-outline"
+                              size={16}
+                              color={
+                                status === 'drafted' ? '#FF6B6B' : '#f44336'
+                              }
+                            />
+                          </TouchableOpacity>
+                        )} */}
                       </View>
                     </TouchableOpacity>
                   );
@@ -2473,6 +2983,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
             </TouchableOpacity>
           </View>
         </ScrollView>
+
+        {/* Delete Confirmation Modal */}
+        {renderDeleteConfirmationModal()}
 
         {/* Drafts Modal */}
         <Modal
@@ -2757,7 +3270,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                 );
               }}
             >
-              <MaterialIcons name="arrow-back" size={25} color="#050505ff" />
+              <MaterialIcons name="arrow-back" size={25} color="white" />
             </TouchableOpacity>
             <View style={styles.headerContent}>
               <Text style={styles.title}>ଓଡ଼ିଆ ପଢିବା ମୂଲ୍ୟାୟନ</Text>
@@ -2806,7 +3319,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                   </Text>
                 </View>
                 <View style={styles.studentInfoRow}>
-                  <MaterialIcons name="school" size={20} color="#fe9c3b" />
+                  <MaterialIcons name="school" size={20} color="#13538a" />
                   <Text style={styles.studentInfoText}>
                     <Text style={styles.studentInfoLabel}>ରୋଲ୍: </Text>
                     {selectedStudentRoll}
@@ -2847,14 +3360,6 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
 
                   <View style={styles.paragraphContainer}>
                     <View style={styles.paragraphCard}>
-                      <View style={styles.paragraphIcon}>
-                        <MaterialIcons
-                          name="format-quote"
-                          size={28}
-                          color="#fe9c3b"
-                        />
-                      </View>
-
                       <View style={styles.paragraphContent}>
                         <Text style={styles.paragraphBody}>{textBody}</Text>
 
@@ -2932,21 +3437,56 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                     <Text style={styles.playbackTitle}>
                       ରେକର୍ଡିଂ ପରୀକ୍ଷା କରନ୍ତୁ:
                     </Text>
+
+                    {/* Playback Progress (Optional) */}
+                    {audioDuration > 0 && (
+                      <View style={styles.playbackProgressContainer}>
+                        <View style={styles.progressBarBackground}>
+                          <View
+                            style={[
+                              styles.progressBarFill,
+                              {
+                                width: `${
+                                  (playbackPosition / audioDuration) * 100
+                                }%`,
+                                backgroundColor: isPaused
+                                  ? '#FF9800'
+                                  : '#0984e3',
+                              },
+                            ]}
+                          />
+                        </View>
+                        <Text style={styles.playbackTimeText}>
+                          {formatTime(playbackPosition)} /{' '}
+                          {formatTime(audioDuration)}
+                          {isPaused && ' (ବିରତ)'}
+                        </Text>
+                      </View>
+                    )}
+
                     <View style={styles.playbackControls}>
                       <TouchableOpacity
-                        onPress={playAudio}
+                        onPress={playing ? pauseAudio : playAudio}
                         style={[styles.secondaryButton, styles.playButton]}
-                        disabled={
-                          playing || isLoading || loadingText || isSavingDraft
-                        }
+                        disabled={isLoading || loadingText || isSavingDraft}
                       >
                         <MaterialIcons
-                          name={playing ? 'pause' : 'play-arrow'}
+                          name={
+                            playing
+                              ? 'pause'
+                              : isPaused
+                              ? 'play-arrow'
+                              : 'play-arrow'
+                          }
                           size={20}
                           color="white"
                         />
                         <Text style={styles.secondaryButtonText}>
-                          {playing ? 'ବିରତ କରନ୍ତୁ' : 'ଶୁଣନ୍ତୁ'}
+                          {playing
+                            ? 'ବିରତ କରନ୍ତୁ'
+                            : isPaused
+                            ? 'ଆଗକୁ ଚାଲନ୍ତୁ'
+                            : 'ଶୁଣନ୍ତୁ'}
                         </Text>
                       </TouchableOpacity>
 
@@ -3002,49 +3542,6 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                       </Text>
                       <Text style={styles.buttonSubText}>
                         ପରେ ସର୍ଭରକୁ ଅପଲୋଡ୍ କରିପାରିବେ
-                      </Text>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  onPress={handleManualSave}
-                  style={[
-                    styles.primaryButton,
-                    styles.saveButton,
-                    (!audioSavedLocally ||
-                      recording ||
-                      playing ||
-                      isLoading ||
-                      loadingText ||
-                      !textId ||
-                      isSavingDraft) &&
-                      styles.disabledButton,
-                  ]}
-                  disabled={
-                    !audioSavedLocally ||
-                    recording ||
-                    playing ||
-                    isLoading ||
-                    loadingText ||
-                    !textId ||
-                    isSavingDraft
-                  }
-                >
-                  <View style={styles.buttonContent}>
-                    <MaterialIcons
-                      name="cloud-upload"
-                      size={24}
-                      color="white"
-                    />
-                    <View style={styles.buttonTextContainer}>
-                      <Text style={styles.buttonMainText}>
-                        {isLoading ? 'ସେଭ୍ ହେଉଛି...' : 'ସର୍ଭରକୁ ଅପଲୋଡ୍ କରନ୍ତୁ'}
-                      </Text>
-                      <Text style={styles.buttonSubText}>
-                        {audioSavedLocally
-                          ? 'ସର୍ଭରକୁ ଅପଲୋଡ୍ କରନ୍ତୁ'
-                          : 'ପ୍ରଥମେ ରେକର୍ଡିଂ ସେଭ୍ କରନ୍ତୁ'}
                       </Text>
                     </View>
                   </View>
@@ -3183,7 +3680,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
   },
   header: {
-    backgroundColor: '#fe9c3b',
+    backgroundColor: '#13538a',
     paddingTop: 50,
     paddingBottom: 20,
     paddingHorizontal: 20,
@@ -3206,8 +3703,8 @@ const styles = StyleSheet.create({
   title: {
     fontSize: isTablet ? 28 : 22,
     fontWeight: 'bold',
-    color: '#050505',
-    marginLeft: 15,
+    color: 'white',
+
     flex: 1,
     textAlign: 'center',
   },
@@ -3374,6 +3871,26 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
   },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFEBEE',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginTop: -10,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#FFCDD2',
+    gap: 8,
+  },
+  errorText: {
+    fontSize: 13,
+    color: '#f44336',
+    fontWeight: '500',
+    flex: 1,
+  },
+
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3382,7 +3899,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 12,
     width: '100%',
-    marginBottom: 25,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: '#e0e0e0',
   },
@@ -3482,7 +3999,7 @@ const styles = StyleSheet.create({
   },
   modalOkButton: {
     flex: 1,
-    backgroundColor: '#fe9c3b',
+    backgroundColor: '#13538a',
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
@@ -3508,11 +4025,42 @@ const styles = StyleSheet.create({
   },
   listHeader: {
     marginBottom: 15,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   listTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
+  },
+  statusLegend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  completedDot: {
+    backgroundColor: '#4CAF50',
+  },
+  draftedDot: {
+    backgroundColor: '#f44336',
+  },
+  pendingDot: {
+    backgroundColor: '#13538a',
+  },
+  legendText: {
+    fontSize: 10,
+    color: '#666',
   },
   listContent: {
     paddingBottom: 10,
@@ -3535,16 +4083,30 @@ const styles = StyleSheet.create({
   },
   selectedStudentCard: {
     backgroundColor: '#FFF8E1',
-    borderColor: '#fe9c3b',
+    borderColor: '#13538a',
     transform: [{ scale: 0.98 }],
   },
   completedStudentCard: {
-    backgroundColor: '#f9f9f9',
-    opacity: 0.8,
+    backgroundColor: '#F0F9F0',
+    borderColor: '#4CAF50',
+    borderWidth: 2,
+    borderLeftWidth: 6,
+    borderLeftColor: '#4CAF50',
+  },
+  draftedStudentCard: {
+    backgroundColor: '#FFF8E1',
+    borderColor: '#ff0000ff',
+    borderWidth: 2,
+    borderLeftWidth: 6,
+    borderLeftColor: '##ff0000ff',
+    borderStyle: 'dashed',
   },
   pendingStudentCard: {
     backgroundColor: '#FFF9E6',
-    borderColor: '#FFC107',
+    borderColor: '#13538a',
+    borderWidth: 1.5,
+    borderLeftWidth: 6,
+    borderLeftColor: '#13538a',
   },
   studentCardLeft: {
     flexDirection: 'row',
@@ -3558,20 +4120,29 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f0f0',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
   selectedRollBadge: {
-    backgroundColor: '#fe9c3b',
+    backgroundColor: '#13538a',
+    borderColor: '#ff8a00',
   },
   completedRollBadge: {
     backgroundColor: '#4CAF50',
+    borderColor: '#45a049',
+  },
+  draftedRollBadge: {
+    backgroundColor: '#ff0000ff',
+    borderColor: '#ff0000ff',
   },
   pendingRollBadge: {
-    backgroundColor: '#FFC107',
+    backgroundColor: '#13538a',
+    borderColor: '#13538a',
   },
   rollNumberText: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#666',
+    color: '#fafafaff',
   },
   rollNumberTextSelected: {
     color: 'white',
@@ -3589,16 +4160,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: 2,
     gap: 10,
+    alignItems: 'center',
   },
   studentId: {
     fontSize: 12,
     color: '#666',
   },
+  draftBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    gap: 4,
+  },
+  draftBadgeText: {
+    fontSize: 10,
+    color: 'red',
+    fontWeight: '600',
+  },
   studentCardRight: {
     alignItems: 'flex-end',
+    flexDirection: 'row',
+    gap: 8,
   },
   completedStatus: {
     alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
   },
   completedText: {
     fontSize: 10,
@@ -3606,14 +4196,33 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontWeight: '500',
   },
+  draftedStatus: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
+  },
+  draftedText: {
+    fontSize: 10,
+    color: 'red',
+    marginTop: 2,
+    fontWeight: '500',
+  },
   pendingStatus: {
     alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
   },
   pendingText: {
     fontSize: 10,
-    color: '#FF9800',
+    color: '#13538a',
     marginTop: 2,
     fontWeight: '500',
+  },
+  deleteButton: {
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: '#FFEBEE',
+    marginLeft: 8,
   },
   emptyState: {
     padding: 40,
@@ -3646,7 +4255,7 @@ const styles = StyleSheet.create({
   emptyStateButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fe9c3b',
+    backgroundColor: '#13538a',
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 12,
@@ -3662,7 +4271,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   assessmentButtonNew: {
-    backgroundColor: '#fe9c3b',
+    backgroundColor: '#13538a',
     borderRadius: 16,
     paddingVertical: 18,
     paddingHorizontal: 20,
@@ -3704,6 +4313,81 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 
+  // Delete Modal Styles
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  deleteModalContainer: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 25,
+    width: '90%',
+    maxWidth: 400,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  deleteModalIcon: {
+    marginBottom: 15,
+  },
+  deleteModalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  deleteModalMessage: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 25,
+  },
+  deleteModalStudentName: {
+    fontWeight: 'bold',
+    color: '#FF6B6B',
+    fontSize: 17,
+  },
+  deleteModalButtons: {
+    flexDirection: 'row',
+    gap: 15,
+    width: '100%',
+  },
+  deleteModalButton: {
+    flex: 1,
+    paddingVertical: 15,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteModalCancelButton: {
+    backgroundColor: '#f0f0f0',
+  },
+  deleteModalConfirmButton: {
+    backgroundColor: '#FF6B6B',
+  },
+  deleteModalCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+  },
+  deleteModalConfirmText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+  },
+
   // Drafts Section Styles
   draftsContainer: {
     backgroundColor: 'white',
@@ -3738,7 +4422,7 @@ const styles = StyleSheet.create({
   draftsCount: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#FF9800',
+    color: 'red',
     backgroundColor: '#FFF3E0',
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -3848,7 +4532,7 @@ const styles = StyleSheet.create({
   batchUploadButtonNew: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2196F3',
+    backgroundColor: '#13538a',
     padding: 16,
     borderRadius: 15,
     marginTop: 15,
@@ -4106,7 +4790,10 @@ const styles = StyleSheet.create({
   },
   draftDetailContent: {
     flex: 1,
+  },
+  draftDetailContentContainer: {
     padding: 20,
+    paddingBottom: 100, // Extra padding to ensure buttons are visible
   },
   draftDetailCard: {
     backgroundColor: '#f8f9fa',
@@ -4141,11 +4828,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
+    flex: 1,
   },
   draftDetailInfoValue: {
     fontSize: 14,
     color: '#333',
     fontWeight: '600',
+    flex: 1,
+    textAlign: 'right',
   },
   audioPreviewContainer: {
     alignItems: 'center',
@@ -4168,10 +4858,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: 'white',
   },
+  draftDetailActionsContainer: {
+    marginTop: 20,
+    marginBottom: 40, // Extra margin to ensure visibility
+  },
   draftDetailActions: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 20,
+    width: '100%',
   },
   draftActionButton: {
     flex: 1,
@@ -4182,6 +4876,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     borderRadius: 12,
     gap: 10,
+    minHeight: 50,
   },
   uploadActionButton: {
     backgroundColor: '#4CAF50',
@@ -4359,11 +5054,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: '100%',
   },
-  paragraphIcon: {
-    position: 'absolute',
-    top: 15,
-    left: 15,
-  },
   paragraphContent: {
     alignItems: 'center',
   },
@@ -4502,10 +5192,35 @@ const styles = StyleSheet.create({
   stopButton: {
     backgroundColor: '#d63031',
   },
+
+  playbackProgressContainer: {
+    marginBottom: 15,
+    alignItems: 'center',
+  },
+  progressBarBackground: {
+    width: '100%',
+    height: 6,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#0984e3',
+    borderRadius: 3,
+  },
+  playbackTimeText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
+  },
+
   secondaryButtonText: {
     color: 'white',
     fontSize: 14,
     fontWeight: '600',
+    marginLeft: 8,
   },
   uploadStatus: {
     flexDirection: 'row',
@@ -4593,7 +5308,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#eee',
   },
   assessmentButton: {
-    backgroundColor: '#fe9c3b',
+    backgroundColor: '#13538a',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
