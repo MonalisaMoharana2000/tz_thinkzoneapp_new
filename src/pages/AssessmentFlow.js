@@ -72,6 +72,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedGrade, setSelectedGrade] = useState('');
   const [validationError, setValidationError] = useState('');
+  const [genderError, setGenderError] = useState('');
 
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [user, setUser] = useState(propUser);
@@ -111,7 +112,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
   const [textVersion, setTextVersion] = useState('');
   const [textHeading, setTextHeading] = useState('');
   const [textDuration, setTextDuration] = useState('');
-
+  console.log('textBody--->', textBody);
   const [draftRecordings, setDraftRecordings] = useState([]);
   const [showDraftsModal, setShowDraftsModal] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
@@ -124,6 +125,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
   const DRAFT_STORAGE_KEY = 'assessment_drafts';
   const timerRef = useRef(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const selectedAnim = useRef(new Animated.Value(1)).current;
   const audioInitPromiseRef = useRef(null);
   const audioInitCompletedRef = useRef(false);
 
@@ -183,6 +185,15 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
 
     // Clear any previous error
     setValidationError('');
+    return true;
+  };
+
+  const validateGender = () => {
+    if (!gender) {
+      setGenderError('ଦୟାକରି ଲିଙ୍ଗ ଚୟନ କରନ୍ତୁ');
+      return false;
+    }
+    setGenderError('');
     return true;
   };
 
@@ -294,6 +305,28 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
     updateStudentStatus();
   }, [draftRecordings, students]);
 
+  // Pulse animation when selected student changes
+  useEffect(() => {
+    if (!selectedStudentRoll) {
+      selectedAnim.setValue(1);
+      return;
+    }
+
+    selectedAnim.setValue(1);
+    Animated.sequence([
+      Animated.timing(selectedAnim, {
+        toValue: 1.06,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+      Animated.timing(selectedAnim, {
+        toValue: 1,
+        duration: 140,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [selectedStudentRoll]);
+
   // Function to check if student has draft
   const hasDraft = student => {
     return draftRecordings.some(
@@ -324,10 +357,47 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       Alert.alert('Info', 'No drafts to upload');
       return;
     }
+    // Refresh latest student data and drafts, then filter/dedupe drafts
+    await refreshStudentData();
+    await loadDraftRecordings();
+
+    // Filter out drafts for students who already have submitted assessments
+    const filteredDrafts = (draftRecordings || []).filter(draft => {
+      const matchedStudent = students.find(s => {
+        return (
+          (s.studentId &&
+            s.studentId.toString() === draft.studentId?.toString()) ||
+          s.rollNumber?.toString() === draft.rollNumber?.toString()
+        );
+      });
+
+      // If student exists and hasORF true, skip this draft
+      if (matchedStudent && matchedStudent.hasORF === true) return false;
+      return true;
+    });
+
+    // Deduplicate: keep newest draft per studentId+class (draftRecordings are sorted by createdAt desc)
+    const seen = new Set();
+    const dedupedDrafts = [];
+    for (const d of filteredDrafts) {
+      const key = `${d.studentId || d.rollNumber}_${d.class}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        dedupedDrafts.push(d);
+      }
+    }
+
+    if (dedupedDrafts.length === 0) {
+      Alert.alert(
+        'Info',
+        'No drafts available to upload after filtering completed students.',
+      );
+      return;
+    }
 
     Alert.alert(
       'ବହୁ ଡ୍ରାଫ୍ଟ ଅପଲୋଡ୍',
-      `ଆପଣ ${draftRecordings.length} ଟି ଡ୍ରାଫ୍ଟ ସର୍ଭରକୁ ଅପଲୋଡ୍ କରିବାକୁ ଚାହୁଁଛନ୍ତି। ଏହା କିଛି ସମୟ ନେଇପାରେ।`,
+      `ଆପଣ ${dedupedDrafts.length} ଟି ଡ୍ରାଫ୍ଟ ସର୍ଭରକୁ ଅପଲୋଡ୍ କରିବାକୁ ଚାହୁଁଛନ୍ତି। ଏହା କିଛି ସମୟ ନେଇପାରେ।`,
       [
         { text: 'ବାତିଲ୍', style: 'cancel' },
         {
@@ -341,8 +411,8 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
             let successfulUploads = 0;
             let failedUploads = 0;
 
-            for (let i = 0; i < draftRecordings.length; i++) {
-              const draft = draftRecordings[i];
+            for (let i = 0; i < dedupedDrafts.length; i++) {
+              const draft = dedupedDrafts[i];
               setCurrentUploadIndex(i + 1);
 
               setUploadProgress(prev => ({
@@ -475,19 +545,32 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         const response = await API.post(`saveOrf`, body);
 
         if (response.status === 201) {
-          // Remove draft from AsyncStorage after successful upload
+          // Remove this draft and any other drafts for same student+class from AsyncStorage after successful upload
           const existingDraftsString = await AsyncStorage.getItem(
             DRAFT_STORAGE_KEY,
           );
           if (existingDraftsString) {
             const existingDrafts = JSON.parse(existingDraftsString);
-            const updatedDrafts = existingDrafts.filter(d => d.id !== draft.id);
+
+            const updatedDrafts = existingDrafts.filter(d => {
+              // Keep drafts that are NOT for the same student and class
+              return !(
+                d.studentId?.toString() === draft.studentId?.toString() &&
+                d.class === draft.class
+              );
+            });
 
             await AsyncStorage.setItem(
               DRAFT_STORAGE_KEY,
               JSON.stringify(updatedDrafts),
             );
             setDraftRecordings(updatedDrafts);
+
+            // Also update draftedStudents list
+            const remainingDraftRolls = updatedDrafts
+              .filter(d => d.class === draft.class)
+              .map(d => d.rollNumber?.toString());
+            setDraftedStudents(remainingDraftRolls);
           }
 
           // Return success
@@ -896,10 +979,12 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
   };
 
   const handleAddStudent = async () => {
-    if (!validateStudentNumber(studentNumber)) {
+    const isRollValid = validateStudentNumber(studentNumber);
+    const isGenderValid = validateGender();
+
+    if (!isRollValid || !isGenderValid) {
       return;
     }
-
     const studentData = {
       rollNumber: parseInt(studentNumber),
       gender: gender,
@@ -1692,15 +1777,17 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
   const fetchTextData = async grade => {
     try {
       setLoadingText(true);
-      const apiUrl = `/getTextGrid/shuffled?userId=${
-        user?.userId || 'user123'
-      }&class=${grade}`;
+      // const apiUrl = `/getTextGrid/shuffled?userId=${
+      const apiUrl = `/getAllTextGrids?class=${grade}${
+        textVersion ? '&textVersion=' + textVersion : ''
+      }`;
 
       const response = await API.get(apiUrl);
+      console.log(':fetchTextData response--->', response.data);
 
       if (response.status === 200) {
         const { textId, textHeading, textBody, textVersion, textDuration } =
-          response.data.data;
+          response.data.data[0] || {};
         setTextId(textId);
         setTextBody(textBody);
         setTextVersion(textVersion);
@@ -1727,10 +1814,15 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
   };
 
   useEffect(() => {
-    if (selectedGrade && currentSection === 'assessment') {
+    if (
+      selectedGrade &&
+      currentSection === 'assessment' &&
+      selectedClass &&
+      textVersion
+    ) {
       fetchTextData(selectedClass);
     }
-  }, [selectedGrade, currentSection, selectedClass]);
+  }, [selectedGrade, currentSection, selectedClass, textVersion]);
 
   // New function to handle student deletion
   const handleDeleteStudent = async student => {
@@ -2341,23 +2433,69 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
               )}
             </View>
           </View>
+
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>ପାଠ୍ୟ ଭାଷା </Text>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={textVersion}
+                style={styles.picker}
+                onValueChange={itemValue => {
+                  setTextVersion(itemValue);
+                }}
+              >
+                <Picker.Item
+                  label="ପାଠ୍ୟ ଭାଷା ଚୟନ କରନ୍ତୁ"
+                  value=""
+                  style={{ fontSize: isTablet ? 20 : 14, lineHeight: 30 }}
+                />
+                <Picker.Item
+                  label="ଭାଷା 1"
+                  value="1"
+                  style={{ fontSize: isTablet ? 20 : 12 }}
+                />
+                <Picker.Item
+                  label="ଭାଷା 2"
+                  value="2"
+                  style={{ fontSize: isTablet ? 20 : 12 }}
+                />
+                <Picker.Item
+                  label="ଭାଷା 3"
+                  value="3"
+                  style={{ fontSize: isTablet ? 20 : 12 }}
+                />
+                <Picker.Item
+                  label="ଭାଷା 4"
+                  value="4"
+                  style={{ fontSize: isTablet ? 20 : 12 }}
+                />
+                <Picker.Item
+                  label="ଭାଷା 5"
+                  value="5"
+                  style={{ fontSize: isTablet ? 20 : 12 }}
+                />
+              </Picker>
+            </View>
+          </View>
         </ScrollView>
 
         <View style={styles.footer}>
           <TouchableOpacity
             style={[
               styles.assessmentButton,
-              !selectedClass && styles.disabledButton,
+              (!selectedClass || !textVersion) && styles.disabledButton,
             ]}
             onPress={() => {
               setCurrentSection('studentSelection');
             }}
-            disabled={!selectedClass}
+            disabled={!selectedClass || !textVersion}
           >
             <Text style={[styles.assessmentButtonText, { lineHeight: 30 }]}>
-              {selectedClass
-                ? `ଶିକ୍ଷାର୍ଥୀ ଚୟନ କରନ୍ତୁ - Class ${selectedClass}`
-                : 'ଶିକ୍ଷାର୍ଥୀ ଚୟନ କରନ୍ତୁ'}
+              {selectedClass && textVersion
+                ? `ଶିକ୍ଷାର୍ଥୀ ଚୟନ କରନ୍ତୁ - Class ${selectedClass} (ଭାଷା ${textVersion})`
+                : selectedClass
+                ? `ପାଠ୍ୟ ଭାଷା ଚୟନ କରନ୍ତୁ`
+                : 'ଶ୍ରେଣୀ ଏବଂ ପାଠ୍ୟ ଭାଷା ଚୟନ କରନ୍ତୁ'}
             </Text>
             <MaterialIcons
               name="arrow-forward"
@@ -2539,7 +2677,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                           setStudentNumber(numericValue);
                         }
 
-                        // Clear error when user starts typing
+                        // Clear errors when user starts typing
                         if (validationError) {
                           setValidationError('');
                         }
@@ -2549,15 +2687,15 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                       style={styles.modalInput}
                       editable={!isSavingStudent}
                       placeholderTextColor="#999"
-                      maxLength={4} // Limit to 4 digits (reasonable for roll numbers)
+                      maxLength={4}
                       onBlur={() => {
-                        // Validate on blur
+                        // Validate roll number on blur
                         validateStudentNumber(studentNumber);
                       }}
                     />
                   </View>
 
-                  {/* Validation Error Message */}
+                  {/* Roll Number Validation Error */}
                   {validationError ? (
                     <View style={styles.errorContainer}>
                       <MaterialIcons
@@ -2569,16 +2707,22 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                     </View>
                   ) : null}
 
-                  {/* Gender Selection */}
+                  {/* Gender Selection - ADDED VALIDATION */}
                   <View style={styles.genderContainer}>
-                    <Text style={styles.genderLabel}>ଲିଙ୍ଗ ଚୟନ କରନ୍ତୁ</Text>
+                    <Text style={styles.genderLabel}>ଲିଙ୍ଗ ଚୟନ କରନ୍ତୁ *</Text>
                     <View style={styles.genderOptionsContainer}>
                       <TouchableOpacity
                         style={[
                           styles.genderOption,
                           gender === 'male' && styles.genderOptionSelected,
                         ]}
-                        onPress={() => setGender('male')}
+                        onPress={() => {
+                          setGender('male');
+                          // Clear gender error when gender is selected
+                          if (genderError) {
+                            setGenderError('');
+                          }
+                        }}
                         disabled={isSavingStudent}
                       >
                         <View
@@ -2612,7 +2756,13 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                           styles.genderOption,
                           gender === 'female' && styles.genderOptionSelected,
                         ]}
-                        onPress={() => setGender('female')}
+                        onPress={() => {
+                          setGender('female');
+                          // Clear gender error when gender is selected
+                          if (genderError) {
+                            setGenderError('');
+                          }
+                        }}
                         disabled={isSavingStudent}
                       >
                         <View
@@ -2641,6 +2791,18 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                         </Text>
                       </TouchableOpacity>
                     </View>
+
+                    {/* Gender Validation Error */}
+                    {genderError ? (
+                      <View style={styles.errorContainer}>
+                        <MaterialIcons
+                          name="error-outline"
+                          size={16}
+                          color="#f44336"
+                        />
+                        <Text style={styles.errorText}>{genderError}</Text>
+                      </View>
+                    ) : null}
                   </View>
 
                   {isSavingStudent ? (
@@ -2656,6 +2818,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                           setStudentNumber('');
                           setGender('male');
                           setValidationError('');
+                          setGenderError('');
                         }}
                         style={styles.modalCancelButton}
                       >
@@ -2664,14 +2827,21 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
 
                       <TouchableOpacity
                         onPress={async () => {
-                          if (validateStudentNumber(studentNumber)) {
+                          // Validate both roll number and gender
+                          const isRollValid =
+                            validateStudentNumber(studentNumber);
+                          const isGenderValid = validateGender();
+
+                          if (isRollValid && isGenderValid) {
                             await handleAddStudent();
                           }
                         }}
                         disabled={!studentNumber.trim()}
                         style={[
                           styles.modalOkButton,
-                          (!studentNumber.trim() || validationError) &&
+                          (!studentNumber.trim() ||
+                            validationError ||
+                            genderError) &&
                             styles.disabledButton,
                         ]}
                       >
@@ -2731,148 +2901,170 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                   const isSelected =
                     selectedStudentRoll?.toString() ===
                     item.rollNumber?.toString();
+                  const anySelected = !!selectedStudentRoll;
 
                   return (
-                    <TouchableOpacity
-                      style={[
-                        styles.studentCard,
-                        isSelected && styles.selectedStudentCard,
-                        status === 'completed' && styles.completedStudentCard,
-                        status === 'drafted' && styles.draftedStudentCard,
-                        status === 'pending' && styles.pendingStudentCard,
-                      ]}
-                      onPress={() => {
-                        if (!isCompleted) {
+                    <Animated.View
+                      style={
+                        isSelected
+                          ? {
+                              transform: [{ scale: selectedAnim }],
+                              shadowColor: '#FF8A00',
+                              shadowOffset: { width: 0, height: 6 },
+                              shadowOpacity: 0.25,
+                              shadowRadius: 10,
+                              elevation: 8,
+                            }
+                          : null
+                      }
+                    >
+                      <TouchableOpacity
+                        style={[
+                          styles.studentCard,
+                          status === 'completed' && styles.completedStudentCard,
+                          status === 'drafted' && styles.draftedStudentCard,
+                          status === 'pending' && styles.pendingStudentCard,
+                          anySelected && !isSelected && styles.dimmedCard,
+                          isSelected && styles.selectedStudentCard,
+                        ]}
+                        onPress={() => {
                           setSelectedStudentRoll(item.rollNumber);
                           setSelectedStudentId(item.studentId);
                           setSelectedStudent(
                             item.studentName || `Student ${item.rollNumber}`,
                           );
-                        }
-                      }}
-                      disabled={isCompleted}
-                      activeOpacity={isCompleted ? 1 : 0.7}
-                      // onLongPress={() => {
-                      //   if (!isCompleted) {
-                      //     handleDeleteStudent(item);
-                      //   }
-                      // }}
-                    >
-                      <View style={styles.studentCardLeft}>
-                        <View
-                          style={[
-                            styles.rollNumberBadge,
-                            isSelected && styles.selectedRollBadge,
-                            status === 'completed' && styles.completedRollBadge,
-                            status === 'drafted' && styles.draftedRollBadge,
-                            status === 'pending' && styles.pendingRollBadge,
-                          ]}
-                        >
-                          <Text
+                        }}
+                        activeOpacity={0.7}
+                        // onLongPress={() => {
+                        //   if (!isCompleted) {
+                        //     handleDeleteStudent(item);
+                        //   }
+                        // }}
+                      >
+                        <View style={styles.studentCardLeft}>
+                          <View
                             style={[
-                              styles.rollNumberText,
-                              (isSelected ||
-                                status === 'completed' ||
-                                status === 'drafted') &&
-                                styles.rollNumberTextSelected,
+                              styles.rollNumberBadge,
+                              isSelected && styles.selectedRollBadge,
+                              status === 'completed' &&
+                                styles.completedRollBadge,
+                              status === 'drafted' && styles.draftedRollBadge,
+                              status === 'pending' && styles.pendingRollBadge,
                             ]}
                           >
-                            {item.rollNumber}
-                          </Text>
+                            <Text
+                              style={[
+                                styles.rollNumberText,
+                                (isSelected ||
+                                  status === 'completed' ||
+                                  status === 'drafted') &&
+                                  styles.rollNumberTextSelected,
+                              ]}
+                            >
+                              {item.rollNumber}
+                            </Text>
 
-                          {/* Status Icon on Roll Badge */}
+                            {/* Status Icon on Roll Badge */}
+                            {status === 'completed' ? (
+                              <View style={styles.rollBadgeIcon}>
+                                <MaterialIcons
+                                  name="check"
+                                  size={10}
+                                  color="white"
+                                />
+                              </View>
+                            ) : status === 'drafted' ? (
+                              <View style={styles.rollBadgeIcon}>
+                                <MaterialIcons
+                                  name="save"
+                                  size={10}
+                                  color="white"
+                                />
+                              </View>
+                            ) : null}
+                          </View>
+                          <View style={styles.studentInfo}>
+                            <View style={styles.studentNameRow}>
+                              <Text
+                                style={[
+                                  styles.studentName,
+                                  isSelected && styles.selectedStudentName,
+                                ]}
+                              >
+                                {item.studentName ||
+                                  `Student ${item.rollNumber}`}
+                              </Text>
+                              {item.gender && (
+                                <MaterialIcons
+                                  name={
+                                    item.gender === 'male' ? 'male' : 'female'
+                                  }
+                                  size={14}
+                                  color="#666"
+                                  style={{ marginLeft: 6 }}
+                                />
+                              )}
+                            </View>
+                            <View style={styles.studentMeta}>
+                              <Text style={styles.studentId}>
+                                ID: {item.studentId || 'N/A'}
+                              </Text>
+                              {studentDraft && (
+                                <View style={styles.draftBadge}>
+                                  <MaterialIcons
+                                    name="mic"
+                                    size={10}
+                                    color="red"
+                                  />
+                                  <Text style={styles.draftBadgeText}>
+                                    {studentDraft.duration || 0}s
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                          </View>
+                        </View>
+
+                        <View style={styles.studentCardRight}>
                           {status === 'completed' ? (
-                            <View style={styles.rollBadgeIcon}>
-                              <MaterialIcons
-                                name="check"
-                                size={10}
-                                color="white"
-                              />
+                            <View style={styles.completedStatus}>
+                              <View style={styles.statusIconContainer}>
+                                <MaterialIcons
+                                  name="check-circle"
+                                  size={18}
+                                  color="#4CAF50"
+                                />
+                              </View>
+                              <Text style={styles.completedText}>
+                                ସମ୍ପୂର୍ଣ୍ଣ
+                              </Text>
                             </View>
                           ) : status === 'drafted' ? (
-                            <View style={styles.rollBadgeIcon}>
-                              <MaterialIcons
-                                name="save"
-                                size={10}
-                                color="white"
-                              />
-                            </View>
-                          ) : null}
-                        </View>
-                        <View style={styles.studentInfo}>
-                          <View style={styles.studentNameRow}>
-                            <Text style={styles.studentName}>
-                              {item.studentName || `Student ${item.rollNumber}`}
-                            </Text>
-                            {item.gender && (
-                              <MaterialIcons
-                                name={
-                                  item.gender === 'male' ? 'male' : 'female'
-                                }
-                                size={14}
-                                color="#666"
-                                style={{ marginLeft: 6 }}
-                              />
-                            )}
-                          </View>
-                          <View style={styles.studentMeta}>
-                            <Text style={styles.studentId}>
-                              ID: {item.studentId || 'N/A'}
-                            </Text>
-                            {studentDraft && (
-                              <View style={styles.draftBadge}>
+                            <View style={styles.draftedStatus}>
+                              <View style={styles.statusIconContainer}>
                                 <MaterialIcons
-                                  name="mic"
-                                  size={10}
+                                  name="save"
+                                  size={18}
                                   color="red"
                                 />
-                                <Text style={styles.draftBadgeText}>
-                                  {studentDraft.duration || 0}s
-                                </Text>
                               </View>
-                            )}
-                          </View>
-                        </View>
-                      </View>
+                              <Text style={styles.draftedText}>ଡ୍ରାଫ୍ଟ୍</Text>
+                            </View>
+                          ) : (
+                            <View style={styles.pendingStatus}>
+                              <View style={styles.statusIconContainer}>
+                                <MaterialIcons
+                                  name="pending"
+                                  size={18}
+                                  color="#13538a"
+                                />
+                              </View>
+                              <Text style={styles.pendingText}>ବାକି</Text>
+                            </View>
+                          )}
 
-                      <View style={styles.studentCardRight}>
-                        {status === 'completed' ? (
-                          <View style={styles.completedStatus}>
-                            <View style={styles.statusIconContainer}>
-                              <MaterialIcons
-                                name="check-circle"
-                                size={18}
-                                color="#4CAF50"
-                              />
-                            </View>
-                            <Text style={styles.completedText}>ସମ୍ପୂର୍ଣ୍ଣ</Text>
-                          </View>
-                        ) : status === 'drafted' ? (
-                          <View style={styles.draftedStatus}>
-                            <View style={styles.statusIconContainer}>
-                              <MaterialIcons
-                                name="save"
-                                size={18}
-                                color="red"
-                              />
-                            </View>
-                            <Text style={styles.draftedText}>ଡ୍ରାଫ୍ଟ୍</Text>
-                          </View>
-                        ) : (
-                          <View style={styles.pendingStatus}>
-                            <View style={styles.statusIconContainer}>
-                              <MaterialIcons
-                                name="pending"
-                                size={18}
-                                color="#13538a"
-                              />
-                            </View>
-                            <Text style={styles.pendingText}>ବାକି</Text>
-                          </View>
-                        )}
-
-                        {/* Delete button for drafted and pending students */}
-                        {/* {(status === 'drafted' || status === 'pending') && (
+                          {/* Delete button for drafted and pending students */}
+                          {/* {(status === 'drafted' || status === 'pending') && (
                           <TouchableOpacity
                             style={[
                               styles.deleteButton,
@@ -2892,8 +3084,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                             />
                           </TouchableOpacity>
                         )} */}
-                      </View>
-                    </TouchableOpacity>
+                        </View>
+                      </TouchableOpacity>
+                    </Animated.View>
                   );
                 }}
               />
@@ -4082,9 +4275,14 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
   },
   selectedStudentCard: {
-    backgroundColor: '#FFF8E1',
-    borderColor: '#13538a',
-    transform: [{ scale: 0.98 }],
+    backgroundColor: '#FFF3C4',
+    borderColor: '#FF8A00',
+    borderWidth: 2,
+    shadowColor: '#FF8A00',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 6,
   },
   completedStudentCard: {
     backgroundColor: '#F0F9F0',
@@ -4108,6 +4306,9 @@ const styles = StyleSheet.create({
     borderLeftWidth: 6,
     borderLeftColor: '#13538a',
   },
+  dimmedCard: {
+    opacity: 0.45,
+  },
   studentCardLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -4124,8 +4325,8 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   selectedRollBadge: {
-    backgroundColor: '#13538a',
-    borderColor: '#ff8a00',
+    backgroundColor: '#FF8A00',
+    borderColor: '#ffffff',
   },
   completedRollBadge: {
     backgroundColor: '#4CAF50',
@@ -4155,6 +4356,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
+  },
+  selectedStudentName: {
+    color: '#FF6A00',
+    fontWeight: '700',
   },
   studentMeta: {
     flexDirection: 'row',
