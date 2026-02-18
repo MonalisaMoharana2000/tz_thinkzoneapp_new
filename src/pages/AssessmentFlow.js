@@ -521,8 +521,20 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       );
 
       if (uploadResult.success && uploadResult.url) {
+        // Find the student to get their correct gender
+        const matchedStudent = students.find(
+          s =>
+            (s.studentId &&
+              s.studentId.toString() === draft.studentId?.toString()) ||
+            s.rollNumber?.toString() === draft.rollNumber?.toString(),
+        );
+
+        // Use student's gender if available, otherwise fallback to draft's gender or state
+        const studentGender = matchedStudent?.gender || draft.gender || gender;
+
         const body = {
           coordinatorId: user?.coordinatorId || 'COORD001',
+          phoneNumber: user?.phoneNumber || '0000000000',
           studentId: draft.studentId,
           rollNumber: draft.rollNumber,
           class: draft.class,
@@ -541,7 +553,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           assessmentType: 'ORF',
           assessmentDate: new Date().toISOString(),
           status: 'completed',
-          gender: gender,
+          gender: studentGender, // Use the correct gender here
         };
 
         const response = await API.post(`saveOrf`, body);
@@ -1333,6 +1345,11 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
     try {
       setIsSavingDraft(true);
 
+      // Find the student to get their gender
+      const matchedStudent = students.find(
+        s => s.rollNumber?.toString() === draftData.rollNumber?.toString(),
+      );
+
       const draftId = `draft_${Date.now()}_${Math.random()
         .toString(36)
         .substr(2, 9)}`;
@@ -1364,6 +1381,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         fileSize: draftData.fileSize || '0 KB',
         uploadAttempts: 0,
         lastUploadAttempt: null,
+        gender: matchedStudent?.gender || gender, // Store gender with the draft
       };
 
       const existingDraftsString = await AsyncStorage.getItem(
@@ -1715,6 +1733,15 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         setUploadStatus('success');
         setAudioUrl(uploadResult.url);
 
+        // Get the selected student's gender from the students array
+        const selectedStudentObj = students.find(
+          student =>
+            student.rollNumber?.toString() === selectedStudentRoll?.toString(),
+        );
+
+        // Use student's gender if available, otherwise fallback to state
+        const studentGender = selectedStudentObj?.gender || gender;
+
         const body = {
           coordinatorId: user?.coordinatorId || 'COORD001',
           studentId: selectedStudentId,
@@ -1732,7 +1759,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           audioDuration: timeLeft,
           textVersion: textVersion || '1.1.0',
           textDuration: textDuration,
-          gender: gender,
+          gender: studentGender, // Use the correct gender here
         };
 
         const response = await API.post(`saveOrf`, body);
@@ -2561,6 +2588,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
     const draftedCount = draftedStudents.length;
     const pendingCount = students.length - completedCount - draftedCount;
 
+    // Get safe area insets for proper spacing
+    const insets = useSafeAreaInsets();
+
     return (
       <View style={[styles.fullContainer, { paddingBottom: 0 }]}>
         <View style={styles.header}>
@@ -2575,21 +2605,6 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
               ଶିକ୍ଷାର୍ଥୀ ଚୟନ କରନ୍ତୁ
             </Text>
           </View>
-
-          {/* Drafts Button in Header */}
-          {/* {draftRecordings.length > 0 && (
-            <TouchableOpacity
-              style={styles.draftsHeaderButton}
-              onPress={() => setShowDraftsModal(true)}
-            >
-              <MaterialIcons name="folder" size={20} color="white" />
-              <View style={styles.draftsBadge}>
-                <Text style={styles.draftsBadgeText}>
-                  {draftRecordings.length}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          )} */}
         </View>
 
         {/* Stats Card */}
@@ -2633,7 +2648,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           contentContainerStyle={[
             styles.studentSelectionContent,
             {
-              paddingBottom: 100,
+              paddingBottom: 100 + (Platform.OS === 'ios' ? insets.bottom : 20), // Dynamic padding based on device
               flexGrow: 1,
             },
           ]}
@@ -2738,7 +2753,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                     </View>
                   ) : null}
 
-                  {/* Gender Selection - ADDED VALIDATION */}
+                  {/* Gender Selection */}
                   <View style={styles.genderContainer}>
                     <Text style={styles.genderLabel}>ଲିଙ୍ଗ ଚୟନ କରନ୍ତୁ *</Text>
                     <View style={styles.genderOptionsContainer}>
@@ -2966,11 +2981,6 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                           );
                         }}
                         activeOpacity={0.7}
-                        // onLongPress={() => {
-                        //   if (!isCompleted) {
-                        //     handleDeleteStudent(item);
-                        //   }
-                        // }}
                       >
                         <View style={styles.studentCardLeft}>
                           <View
@@ -3093,28 +3103,6 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                               <Text style={styles.pendingText}>ବାକି</Text>
                             </View>
                           )}
-
-                          {/* Delete button for drafted and pending students */}
-                          {/* {(status === 'drafted' || status === 'pending') && (
-                          <TouchableOpacity
-                            style={[
-                              styles.deleteButton,
-                              status === 'drafted' &&
-                                styles.deleteButtonDrafted,
-                              status === 'pending' &&
-                                styles.deleteButtonPending,
-                            ]}
-                            onPress={() => handleDeleteStudent(item)}
-                          >
-                            <MaterialIcons
-                              name="delete-outline"
-                              size={16}
-                              color={
-                                status === 'drafted' ? '#FF6B6B' : '#f44336'
-                              }
-                            />
-                          </TouchableOpacity>
-                        )} */}
                         </View>
                       </TouchableOpacity>
                     </Animated.View>
@@ -3148,74 +3136,86 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           {/* Drafts Section */}
           {renderDraftsSection()}
 
-          {/* Assessment Button */}
+          {/* Dynamic spacer based on device safe area */}
           <View
+            style={{ height: Platform.OS === 'ios' ? insets.bottom + 80 : 100 }}
+          />
+        </ScrollView>
+
+        {/* Dynamic Sticky Assessment Button with Safe Area Handling */}
+        <View
+          style={[
+            styles.stickyButtonContainer,
+            {
+              paddingBottom: Math.max(insets.bottom + 12, 20),
+              paddingHorizontal: isTablet ? 30 : 20,
+              paddingTop: isTablet ? 18 : 15,
+              backgroundColor: '#f5f5f5',
+              minHeight: isTablet ? 80 : 70,
+              justifyContent: 'center',
+            },
+          ]}
+        >
+          <TouchableOpacity
             style={[
-              styles.assessmentButtonContainer,
+              styles.assessmentButtonNew,
+              (!selectedStudentRoll ||
+                isLoadingData ||
+                selectedStudentIsCompleted) &&
+                styles.disabledButton,
               {
-                paddingBottom: Math.max(insets.bottom, 20),
-                marginBottom: Platform.OS === 'android' ? 0 : 0,
-                backgroundColor: '#f5f5f5',
+                minHeight: isTablet ? 60 : 50,
+                borderRadius: isTablet ? 18 : 14,
               },
             ]}
-          >
-            <TouchableOpacity
-              style={[
-                styles.assessmentButtonNew,
-                (!selectedStudentRoll ||
-                  isLoadingData ||
-                  selectedStudentIsCompleted) &&
-                  styles.disabledButton,
-              ]}
-              onPress={() => {
-                if (
-                  selectedStudentRoll &&
-                  !selectedStudentIsCompleted &&
-                  !isLoadingData
-                ) {
-                  handleStartAssessment();
-                  setCurrentSection('assessment');
-                }
-              }}
-              disabled={
-                !selectedStudentRoll ||
-                isLoadingData ||
-                selectedStudentIsCompleted
+            onPress={() => {
+              if (
+                selectedStudentRoll &&
+                !selectedStudentIsCompleted &&
+                !isLoadingData
+              ) {
+                handleStartAssessment();
+                setCurrentSection('assessment');
               }
-            >
-              <View style={styles.assessmentButtonContent}>
-                <MaterialIcons
-                  name={selectedStudentIsCompleted ? 'check-circle' : 'mic'}
-                  size={24}
-                  color="white"
-                  style={styles.assessmentButtonIcon}
-                />
-                <View style={styles.assessmentButtonTextContainer}>
-                  <Text style={styles.assessmentButtonMainText}>
-                    {selectedStudentIsCompleted
-                      ? 'ମୂଲ୍ୟାୟନ ସମ୍ପୂର୍ଣ୍ଣ'
-                      : 'ମୂଲ୍ୟାୟନ ଆରମ୍ଭ କରନ୍ତୁ'}
-                  </Text>
-                  <Text style={styles.assessmentButtonSubText}>
-                    {selectedStudentRoll
-                      ? `${selectedStudent} (${
-                          selectedStudentIsCompleted
-                            ? 'ପୂର୍ବରୁ ମୂଲ୍ୟାୟନ ହୋଇଛି'
-                            : 'ନୂଆ ମୂଲ୍ୟାୟନ'
-                        })`
-                      : 'ଏକ ଶିକ୍ଷାର୍ଥୀ ଚୟନ କରନ୍ତୁ'}
-                  </Text>
-                </View>
-              </View>
+            }}
+            disabled={
+              !selectedStudentRoll ||
+              isLoadingData ||
+              selectedStudentIsCompleted
+            }
+          >
+            <View style={styles.assessmentButtonContent}>
               <MaterialIcons
-                name={selectedStudentIsCompleted ? 'check' : 'arrow-forward'}
-                size={20}
+                name={selectedStudentIsCompleted ? 'check-circle' : 'mic'}
+                size={24}
                 color="white"
-                style={styles.buttonIcon}
+                style={styles.assessmentButtonIcon}
               />
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
+              <View style={styles.assessmentButtonTextContainer}>
+                <Text style={styles.assessmentButtonMainText}>
+                  {selectedStudentIsCompleted
+                    ? 'ମୂଲ୍ୟାୟନ ସମ୍ପୂର୍ଣ୍ଣ'
+                    : 'ମୂଲ୍ୟାୟନ ଆରମ୍ଭ କରନ୍ତୁ'}
+                </Text>
+                {/* <Text style={styles.assessmentButtonSubText}>
+                  {selectedStudentRoll
+                    ? `${selectedStudent} (${
+                        selectedStudentIsCompleted
+                          ? 'ପୂର୍ବରୁ ମୂଲ୍ୟାୟନ ହୋଇଛି'
+                          : 'ନୂଆ ମୂଲ୍ୟାୟନ'
+                      })`
+                    : 'ଏକ ଶିକ୍ଷାର୍ଥୀ ଚୟନ କରନ୍ତୁ'}
+                </Text> */}
+              </View>
+            </View>
+            <MaterialIcons
+              name={selectedStudentIsCompleted ? 'check' : 'arrow-forward'}
+              size={20}
+              color="white"
+              style={styles.buttonIcon}
+            />
+          </TouchableOpacity>
+        </View>
 
         {/* Delete Confirmation Modal */}
         {renderDeleteConfirmationModal()}
@@ -4517,14 +4517,14 @@ const styles = StyleSheet.create({
   },
   assessmentButtonNew: {
     backgroundColor: '#13538a',
-    borderRadius: 16,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    elevation: 4,
+    borderRadius: isTablet ? 18 : 14,
+    paddingVertical: isTablet ? 20 : 16,
+    paddingHorizontal: isTablet ? 24 : 18,
+    elevation: 6,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -4535,23 +4535,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   assessmentButtonIcon: {
-    marginRight: 12,
+    marginRight: isTablet ? 16 : 12,
   },
   assessmentButtonTextContainer: {
     flex: 1,
   },
   assessmentButtonMainText: {
     color: 'white',
-    fontSize: 18,
+    fontSize: isTablet ? 20 : 16,
     fontWeight: 'bold',
+    lineHeight: isTablet ? 28 : 24,
   },
   assessmentButtonSubText: {
     color: 'rgba(255,255,255,0.9)',
-    fontSize: 12,
+    fontSize: isTablet ? 14 : 11,
     marginTop: 2,
   },
   buttonIcon: {
-    marginLeft: 10,
+    marginLeft: isTablet ? 12 : 8,
   },
   disabledButton: {
     backgroundColor: '#ccc',
@@ -4615,6 +4616,22 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  stickyButtonContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#f5f5f5',
+    borderTopWidth: 2,
+    borderTopColor: '#e8e8e8',
+    elevation: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    zIndex: 1000,
   },
   deleteModalCancelButton: {
     backgroundColor: '#f0f0f0',
