@@ -1815,28 +1815,53 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       console.log(':fetchTextData response--->', response.data);
 
       if (response.status === 200) {
-        const { textId, textHeading, textBody, textVersion, textDuration } =
-          response.data.data[0] || {};
-        setTextId(textId);
-        setTextBody(textBody);
-        setTextVersion(textVersion);
-        setTextHeading(textHeading);
-        setTextDuration(textDuration);
+        // Check if data array exists and has items
+        if (response.data.data && response.data.data.length > 0) {
+          const { textId, textHeading, textBody, textVersion, textDuration } =
+            response.data.data[0] || {};
+          setTextId(textId);
+          setTextBody(textBody);
+          setTextVersion(textVersion);
+          setTextHeading(textHeading);
+          setTextDuration(textDuration);
 
-        setTextData({
-          textId,
-          textHeading,
-          textBody,
-          textVersion,
-          title: `ପଠନ ବିଷୟ: ଶ୍ରେଣୀ ${grade} ପାଠ୍ୟ`,
-        });
+          setTextData({
+            textId,
+            textHeading,
+            textBody,
+            textVersion,
+            title: `ପଠନ ବିଷୟ: ଶ୍ରେଣୀ ${grade} ପାଠ୍ୟ`,
+          });
+        } else {
+          // No text grids available
+          setTextId('');
+          setTextBody('');
+          setTextHeading('');
+          setTextData(null);
 
+          // Show alert that no text grids are available
+          Alert.alert(
+            'ପାଠ୍ୟ ଉପଲବ୍ଧ ନାହିଁ',
+            `ଶ୍ରେଣୀ ${grade} ପାଇଁ କୌଣସି ପାଠ୍ୟ ଉପଲବ୍ଧ ନାହିଁ।\nଦୟାକରି ଅନ୍ୟ ଶ୍ରେଣୀ କିମ୍ବା ପାଠ୍ୟ ଭାଷା ଚୟନ କରନ୍ତୁ।`,
+            [{ text: 'ଠିକ୍ ଅଛି' }],
+          );
+        }
         return textBody;
       } else {
         throw new Error('Failed to fetch text data');
       }
     } catch (error) {
       console.error('Error fetching text data:', error);
+      setTextData(null);
+      setTextId('');
+      setTextBody('');
+      setTextHeading('');
+
+      Alert.alert(
+        'ତ୍ରୁଟି',
+        'ପାଠ୍ୟ ଲୋଡ୍ କରିବାରେ ବିଫଳ।\nଦୟାକରି ପୁଣି ଚେଷ୍ଟା କରନ୍ତୁ।',
+        [{ text: 'ଠିକ୍ ଅଛି' }],
+      );
     } finally {
       setLoadingText(false);
     }
@@ -3479,6 +3504,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
     const title = displayTextData?.textHeading || '';
     const textId = displayTextData?.textId || '';
 
+    // Check if no text data is available
+    const noTextAvailable = !loadingText && !textData && !textId && !textBody;
+
     return (
       <View style={styles.fullContainer}>
         <View style={styles.header}>
@@ -3524,6 +3552,30 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#4a6fa5" />
               <Text style={styles.loadingText}>ପାଠ୍ୟ ଲୋଡ୍ ହେଉଛି...</Text>
+            </View>
+          ) : noTextAvailable ? (
+            // No Text Grids Available Message
+            <View style={styles.noTextContainer}>
+              <View style={styles.noTextIconContainer}>
+                <MaterialIcons name="menu-book" size={80} color="#ccc" />
+              </View>
+              <Text style={styles.noTextTitle}>ପାଠ୍ୟ ଉପଲବ୍ଧ ନାହିଁ</Text>
+              <Text style={styles.noTextSubtitle}>
+                ଶ୍ରେଣୀ {selectedClass} ପାଇଁ କୌଣସି ପାଠ୍ୟ ଉପଲବ୍ଧ ନାହିଁ।
+              </Text>
+              <Text style={styles.noTextDescription}>
+                ଦୟାକରି ଅନ୍ୟ ଶ୍ରେଣୀ କିମ୍ବା ପାଠ୍ୟ ଭାଷା ଚୟନ କରନ୍ତୁ।
+              </Text>
+
+              <TouchableOpacity
+                style={styles.goBackButton}
+                onPress={() => setCurrentSection('studentSelection')}
+              >
+                <MaterialIcons name="arrow-back" size={20} color="white" />
+                <Text style={styles.goBackButtonText}>
+                  ଶିକ୍ଷାର୍ଥୀ ଚୟନକୁ ଫେରିଯାନ୍ତୁ
+                </Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <View style={styles.assessmentContent}>
@@ -3630,10 +3682,12 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                   style={[
                     styles.primaryButton,
                     recording ? styles.recordingButton : styles.recordButton,
-                    (isLoading || loadingText || isSavingDraft) &&
+                    (isLoading || loadingText || isSavingDraft || !textId) &&
                       styles.disabledButton,
                   ]}
-                  disabled={isLoading || loadingText || isSavingDraft}
+                  disabled={
+                    isLoading || loadingText || isSavingDraft || !textId
+                  }
                 >
                   <View style={styles.buttonContent}>
                     <MaterialIcons
@@ -5591,6 +5645,61 @@ const styles = StyleSheet.create({
     fontSize: isTablet ? 20 : 16,
     fontWeight: '600',
     textAlign: 'center',
+  },
+
+  noTextContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 30,
+    paddingVertical: 50,
+    minHeight: height * 0.6,
+  },
+  noTextIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 25,
+  },
+  noTextTitle: {
+    fontSize: isTablet ? 26 : 22,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  noTextSubtitle: {
+    fontSize: isTablet ? 18 : 16,
+    color: '#666',
+    marginBottom: 10,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  noTextDescription: {
+    fontSize: isTablet ? 16 : 14,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 30,
+    lineHeight: 20,
+    paddingHorizontal: 20,
+  },
+  goBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#13538a',
+    paddingHorizontal: 25,
+    paddingVertical: 15,
+    borderRadius: 12,
+    elevation: 3,
+    gap: 10,
+  },
+  goBackButtonText: {
+    color: 'white',
+    fontSize: isTablet ? 18 : 16,
+    fontWeight: '600',
   },
 });
 
