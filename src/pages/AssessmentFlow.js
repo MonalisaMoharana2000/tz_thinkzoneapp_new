@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import {
   View,
   Text,
@@ -128,7 +130,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
   const selectedAnim = useRef(new Animated.Value(1)).current;
   const audioInitPromiseRef = useRef(null);
   const audioInitCompletedRef = useRef(false);
-
+  const insets = useSafeAreaInsets();
   // New state for enhanced draft UI
   const [draftDetailModalVisible, setDraftDetailModalVisible] = useState(false);
   const [selectedDraftForDetail, setSelectedDraftForDetail] = useState(null);
@@ -534,7 +536,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           textBody: draft.textBody || [],
           audioUrl: uploadResult.url,
           audioDuration: draft.audioDuration || draft.duration || 0,
-          textVersion: draft.textVersion || '1.1.0',
+          textVersion: draft.textVersion || textVersion,
           textDuration: draft.textDuration,
           assessmentType: 'ORF',
           assessmentDate: new Date().toISOString(),
@@ -2285,7 +2287,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
   };
 
   const renderSchoolInfoSelection = () => (
-    <View style={styles.fullContainer}>
+    <View style={[styles.fullContainer, { paddingBottom: 0 }]}>
       <View style={styles.header}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <TouchableOpacity
@@ -2303,7 +2305,17 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       </View>
 
       <View style={styles.contentContainer}>
-        <ScrollView contentContainerStyle={styles.formContainer}>
+        <ScrollView
+          style={[styles.contentContainer, { marginBottom: 0 }]}
+          contentContainerStyle={[
+            styles.formContainer,
+            {
+              paddingBottom: 100,
+              flexGrow: 1,
+            },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.formGroup}>
             <Text style={styles.label}>ଜିଲ୍ଲା </Text>
             <View style={styles.pickerContainer}>
@@ -2479,7 +2491,20 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           </View>
         </ScrollView>
 
-        <View style={styles.footer}>
+        <View
+          style={[
+            styles.footer,
+            {
+              paddingBottom: Math.max(insets.bottom, 20),
+              marginBottom: Platform.OS === 'android' ? 0 : 0,
+              elevation: 8,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: -2 },
+              shadowOpacity: 0.1,
+              shadowRadius: 3,
+            },
+          ]}
+        >
           <TouchableOpacity
             style={[
               styles.assessmentButton,
@@ -2537,7 +2562,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
     const pendingCount = students.length - completedCount - draftedCount;
 
     return (
-      <View style={styles.fullContainer}>
+      <View style={[styles.fullContainer, { paddingBottom: 0 }]}>
         <View style={styles.header}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <TouchableOpacity
@@ -2605,7 +2630,13 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
 
         <ScrollView
           style={styles.contentContainer}
-          contentContainerStyle={styles.studentSelectionContent}
+          contentContainerStyle={[
+            styles.studentSelectionContent,
+            {
+              paddingBottom: 100,
+              flexGrow: 1,
+            },
+          ]}
           showsVerticalScrollIndicator={false}
         >
           {/* Add Student Button */}
@@ -3118,7 +3149,16 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           {renderDraftsSection()}
 
           {/* Assessment Button */}
-          <View style={styles.assessmentButtonContainer}>
+          <View
+            style={[
+              styles.assessmentButtonContainer,
+              {
+                paddingBottom: Math.max(insets.bottom, 20),
+                marginBottom: Platform.OS === 'android' ? 0 : 0,
+                backgroundColor: '#f5f5f5',
+              },
+            ]}
+          >
             <TouchableOpacity
               style={[
                 styles.assessmentButtonNew,
@@ -4473,7 +4513,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   assessmentButtonContainer: {
-    marginTop: 20,
+    backgroundColor: '#f5f5f5',
   },
   assessmentButtonNew: {
     backgroundColor: '#13538a',
@@ -5508,9 +5548,12 @@ const styles = StyleSheet.create({
     height: isTablet ? 60 : 50,
   },
   footer: {
-    paddingVertical: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
     borderTopWidth: 1,
     borderTopColor: '#eee',
+    backgroundColor: '#f5f5f5',
   },
   assessmentButton: {
     backgroundColor: '#13538a',
