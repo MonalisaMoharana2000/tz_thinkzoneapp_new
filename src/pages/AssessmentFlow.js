@@ -2041,7 +2041,29 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                   <Text style={styles.draftDetailTitle}>ଡ୍ରାଫ୍ଟ ବିବରଣୀ</Text>
                 </View>
                 <TouchableOpacity
-                  onPress={() => setDraftDetailModalVisible(false)}
+                  onPress={() => {
+                    setDraftDetailModalVisible(false);
+                    if (soundObj) {
+                      soundObj.stop(() => {
+                        soundObj.release();
+                      });
+                    }
+
+                    setRecording(false);
+                    setFilePath('');
+                    setAudioUrl('');
+                    setPlaying(false);
+                    setIsPaused(false);
+                    setSoundObj(null);
+                    setPlaybackPosition(0);
+                    setUploadStatus('idle');
+
+                    // Clear any timers
+                    if (timerRef.current) {
+                      clearInterval(timerRef.current);
+                      timerRef.current = null;
+                    }
+                  }}
                   style={styles.draftDetailCloseButton}
                 >
                   <MaterialIcons name="close" size={24} color="#666" />
