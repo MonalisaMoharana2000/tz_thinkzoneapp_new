@@ -254,7 +254,33 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
             { text: 'ବାତିଲ୍', style: 'cancel' },
             {
               text: 'ହଁ',
-              onPress: () => setCurrentSection('studentSelection'),
+              onPress: () => {
+                // First stop any playing audio
+                if (soundObj) {
+                  soundObj.stop(() => {
+                    soundObj.release();
+                  });
+                }
+
+                // Reset all recording states
+                setRecording(false);
+                setFilePath('');
+                setAudioUrl('');
+                setPlaying(false);
+                setIsPaused(false);
+                setSoundObj(null);
+                setPlaybackPosition(0);
+                setUploadStatus('idle');
+
+                // Clear any timers
+                if (timerRef.current) {
+                  clearInterval(timerRef.current);
+                  timerRef.current = null;
+                }
+
+                // Navigate back
+                setCurrentSection('studentSelection');
+              },
             },
           ],
         );
@@ -269,7 +295,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
     );
 
     return () => backHandler.remove();
-  }, [currentSection, navigation]);
+  }, [currentSection, soundObj]); // Add soundObj to dependencies
 
   // New function to get student status
   const getStudentStatus = student => {
@@ -1577,6 +1603,30 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                     );
                   }
 
+                  if (soundObj) {
+                    soundObj.stop(() => {
+                      soundObj.release();
+                    });
+                  }
+
+                  setRecording(false);
+                  setFilePath('');
+                  setAudioUrl('');
+                  setPlaying(false);
+                  setIsPaused(false);
+                  setSoundObj(null);
+                  setPlaybackPosition(0);
+                  setUploadStatus('idle');
+
+                  // Clear any timers
+                  if (timerRef.current) {
+                    clearInterval(timerRef.current);
+                    timerRef.current = null;
+                  }
+
+                  // Navigate back
+                  setCurrentSection('studentSelection');
+
                   Alert.alert('ସଫଳତା', 'ଡ୍ରାଫ୍ଟ ସଫଳତାର ସହିତ ଡିଲିଟ୍ ହୋଇଛି।');
                 }
               } catch (error) {
@@ -1953,7 +2003,33 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       visible={draftDetailModalVisible}
       transparent={true}
       animationType="slide"
-      onRequestClose={() => setDraftDetailModalVisible(false)}
+      onRequestClose={() => {
+        setDraftDetailModalVisible(false);
+        if (soundObj) {
+          soundObj.stop(() => {
+            soundObj.release();
+          });
+        }
+
+        // Reset all recording states
+        setRecording(false);
+        setFilePath('');
+        setAudioUrl('');
+        setPlaying(false);
+        setIsPaused(false);
+        setSoundObj(null);
+        setPlaybackPosition(0);
+        setUploadStatus('idle');
+
+        // Clear any timers
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
+
+        // Navigate back
+        setCurrentSection('studentSelection');
+      }}
     >
       <View style={styles.draftDetailModalOverlay}>
         <View style={styles.draftDetailModalContainer}>
@@ -2393,9 +2469,11 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                   <Picker.Item
                     label="ଜିଲ୍ଲା"
                     value=""
+                    enabled={false} // Disable this label item
                     style={{
                       fontSize: isTablet ? 20 : 14,
                       lineHeight: 30,
+                      color: '#999', // Optional: make it appear disabled
                     }}
                   />
                   {districts.map(district => (
@@ -2437,7 +2515,12 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                   <Picker.Item
                     label="ବ୍ଲକ"
                     value=""
-                    style={{ fontSize: isTablet ? 20 : 14, lineHeight: 30 }}
+                    enabled={false} // Disable this label item
+                    style={{
+                      fontSize: isTablet ? 20 : 14,
+                      lineHeight: 30,
+                      color: '#999',
+                    }}
                   />
                   {blocks.map(block => (
                     <Picker.Item
@@ -2483,7 +2566,12 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                   <Picker.Item
                     label="ଶ୍ରେଣୀ"
                     value=""
-                    style={{ fontSize: isTablet ? 20 : 14, lineHeight: 30 }}
+                    enabled={false} // Disable this label item
+                    style={{
+                      fontSize: isTablet ? 20 : 14,
+                      lineHeight: 30,
+                      color: '#999',
+                    }}
                   />
                   {classes.map(cls => (
                     <Picker.Item
@@ -2511,7 +2599,12 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                 <Picker.Item
                   label="ପାଠ୍ୟ ଭାଷା ଚୟନ କରନ୍ତୁ"
                   value=""
-                  style={{ fontSize: isTablet ? 20 : 14, lineHeight: 30 }}
+                  enabled={false} // Disable this label item
+                  style={{
+                    fontSize: isTablet ? 20 : 14,
+                    lineHeight: 30,
+                    color: '#999',
+                  }}
                 />
                 <Picker.Item
                   label="ଭାଷା 1"
@@ -3525,7 +3618,33 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                     },
                     {
                       text: 'ହଁ',
-                      onPress: () => setCurrentSection('studentSelection'),
+                      onPress: () => {
+                        // Stop any playing audio first
+                        if (soundObj) {
+                          soundObj.stop(() => {
+                            soundObj.release();
+                          });
+                        }
+
+                        // Reset all recording states
+                        setRecording(false);
+                        setFilePath('');
+                        setAudioUrl('');
+                        setPlaying(false);
+                        setIsPaused(false);
+                        setSoundObj(null);
+                        setPlaybackPosition(0);
+                        setUploadStatus('idle');
+
+                        // Clear any timers
+                        if (timerRef.current) {
+                          clearInterval(timerRef.current);
+                          timerRef.current = null;
+                        }
+
+                        // Navigate back
+                        setCurrentSection('studentSelection');
+                      },
                     },
                   ],
                 );
@@ -3896,8 +4015,15 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                           { text: 'ବାତିଲ୍', style: 'cancel' },
                           {
                             text: 'ହଁ',
-                            onPress: () =>
+                            onPress: () => {
                               setCurrentSection('studentSelection'),
+                                setRecording(false),
+                                setFilePath(''),
+                                setAudioUrl('');
+
+                              setUploadStatus('idle');
+                              setSoundObj(null), setPlaying(false);
+                            },
                           },
                         ],
                       );
