@@ -57,6 +57,7 @@ const isTablet = width >= 768;
 const AssessmentFlow = ({ navigation, user: propUser }) => {
   const [currentSection, setCurrentSection] = useState('schoolInfo');
   const [districts, setDistricts] = useState([]);
+  console.log('districts--->', districts);
   const [blocks, setBlocks] = useState([]);
   const [clusters, setClusters] = useState([]);
   const [schools, setSchools] = useState([]);
@@ -116,6 +117,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
   const [textDuration, setTextDuration] = useState('');
   console.log('textBody--->', textBody);
   const [draftRecordings, setDraftRecordings] = useState([]);
+  console.log('draftRecordings--->', draftRecordings);
   const [showDraftsModal, setShowDraftsModal] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
 
@@ -1339,6 +1341,74 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
     loadDraftRecordings();
   }, []);
 
+  // Function to filter drafts based on current selections
+  // Function to filter drafts based on current selections
+  const getFilteredDrafts = drafts => {
+    if (!drafts || drafts.length === 0) return [];
+
+    console.log('Applying filters to drafts - total drafts:', drafts.length);
+    console.log('Current filters:', {
+      districtCode: selectedDistrictCode,
+      blockCode: selectedBlockCode,
+      class: selectedClass,
+      textVersion: textVersion,
+    });
+
+    return drafts.filter(draft => {
+      // Convert both to string for comparison to handle type mismatches
+      const matchesDistrict = draft.districtCode === selectedDistrictCode;
+      const matchesBlock = draft.blockCode === selectedBlockCode;
+      const matchesClass = draft.class === selectedClass;
+      const matchesTextVersion =
+        draft.textVersion?.toString() === textVersion?.toString();
+
+      const result =
+        matchesDistrict &&
+        matchesBlock &&
+        matchesClass &&
+        matchesTextVersion &&
+        draft.status === 'draft';
+
+      if (result) {
+        console.log('✅ Draft matched:', {
+          id: draft.id,
+          studentName: draft.studentName,
+          textVersion: draft.textVersion,
+          class: draft.class,
+        });
+      }
+
+      return result;
+    });
+  };
+
+  useEffect(() => {
+    if (draftRecordings.length > 0 && selectedClass && textVersion) {
+      const filteredDrafts = getFilteredDrafts(draftRecordings);
+      console.log(
+        'Drafts after filtering based on selection changes:',
+        filteredDrafts,
+      );
+
+      // Update drafted students based on filtered drafts
+      const draftRollNumbers = filteredDrafts.map(draft =>
+        draft.rollNumber?.toString(),
+      );
+      setDraftedStudents(draftRollNumbers);
+
+      console.log('Filters applied - filtered drafts:', filteredDrafts.length);
+    } else {
+      // Clear drafted students if no class or textVersion selected
+      setDraftedStudents([]);
+    }
+  }, [
+    selectedDistrictCode,
+    selectedBlockCode,
+    selectedClass,
+    textVersion, // Changed from selectedGrade to textVersion
+    draftRecordings,
+  ]);
+
   const loadDraftRecordings = async () => {
     try {
       const draftsString = await AsyncStorage.getItem(DRAFT_STORAGE_KEY);
@@ -1347,14 +1417,26 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         const sortedDrafts = drafts.sort(
           (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
         );
+
+        // Set all drafts
         setDraftRecordings(sortedDrafts);
 
-        // Update drafted students after loading drafts
-        if (selectedClass) {
-          const draftRollNumbers = sortedDrafts
-            .filter(draft => draft.class === selectedClass)
-            .map(draft => draft.rollNumber?.toString());
+        // Filter drafts based on current selections
+        if (selectedClass && textVersion) {
+          const filteredDrafts = getFilteredDrafts(sortedDrafts);
+
+          // Update drafted students based on filtered drafts
+          const draftRollNumbers = filteredDrafts.map(draft =>
+            draft.rollNumber?.toString(),
+          );
           setDraftedStudents(draftRollNumbers);
+
+          console.log(
+            'Filtered drafts count after load:',
+            filteredDrafts.length,
+          );
+        } else {
+          setDraftedStudents([]);
         }
       } else {
         setDraftRecordings([]);
@@ -1389,6 +1471,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         studentName: draftData.studentName || `Student ${draftData.rollNumber}`,
         rollNumber: draftData.rollNumber,
         class: draftData.class,
+        grade: draftData.class, // Add grade field
         blockCode: draftData.blockCode,
         block: draftData.block,
         districtCode: draftData.districtCode,
@@ -1446,15 +1529,22 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       const sortedDrafts = existingDrafts.sort(
         (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
       );
+
+      // Set all drafts
       setDraftRecordings(sortedDrafts);
 
-      // Update drafted students
-      const draftRollNumbers = sortedDrafts
+      // Get filtered drafts based on current selections
+      const filteredDrafts = getFilteredDrafts(sortedDrafts);
+
+      // Update drafted students based on filtered drafts
+      const draftRollNumbers = filteredDrafts
         .filter(draft => draft.class === selectedClass)
         .map(draft => draft.rollNumber?.toString());
       setDraftedStudents(draftRollNumbers);
 
       console.log('Draft saved successfully:', newDraft.id);
+      console.log('Filtered drafts after save:', filteredDrafts.length);
+
       return newDraft;
     } catch (error) {
       console.error('Error saving draft:', error);
@@ -1592,40 +1682,20 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                   const sortedDrafts = updatedDrafts.sort(
                     (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
                   );
+
+                  // Set all drafts
                   setDraftRecordings(sortedDrafts);
 
-                  // Update drafted students after deletion
+                  // Get filtered drafts based on current selections
+                  const filteredDrafts = getFilteredDrafts(sortedDrafts);
+
+                  // Update drafted students based on filtered drafts
                   if (draftToDelete && draftToDelete.class === selectedClass) {
-                    setDraftedStudents(prev =>
-                      prev.filter(
-                        roll => roll !== draftToDelete.rollNumber?.toString(),
-                      ),
-                    );
+                    const draftRollNumbers = filteredDrafts
+                      .filter(draft => draft.class === selectedClass)
+                      .map(draft => draft.rollNumber?.toString());
+                    setDraftedStudents(draftRollNumbers);
                   }
-
-                  if (soundObj) {
-                    soundObj.stop(() => {
-                      soundObj.release();
-                    });
-                  }
-
-                  setRecording(false);
-                  setFilePath('');
-                  setAudioUrl('');
-                  setPlaying(false);
-                  setIsPaused(false);
-                  setSoundObj(null);
-                  setPlaybackPosition(0);
-                  setUploadStatus('idle');
-
-                  // Clear any timers
-                  if (timerRef.current) {
-                    clearInterval(timerRef.current);
-                    timerRef.current = null;
-                  }
-
-                  // Navigate back
-                  setCurrentSection('studentSelection');
 
                   Alert.alert('ସଫଳତା', 'ଡ୍ରାଫ୍ଟ ସଫଳତାର ସହିତ ଡିଲିଟ୍ ହୋଇଛି।');
                 }
@@ -2308,8 +2378,21 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
   );
 
   // New function to render drafts section in student selection
+  // New function to render drafts section in student selection
   const renderDraftsSection = () => {
-    if (draftRecordings.length === 0) {
+    const filteredDrafts = getFilteredDrafts(draftRecordings);
+    console.log('Rendering drafts section with filtered drafts:', {
+      totalDrafts: draftRecordings.length,
+      filteredCount: filteredDrafts.length,
+      currentFilters: {
+        districtCode: selectedDistrictCode,
+        blockCode: selectedBlockCode,
+        class: selectedClass,
+        textVersion: textVersion,
+      },
+    });
+
+    if (filteredDrafts.length === 0) {
       return (
         <View style={styles.emptyDraftsContainer}>
           <View style={styles.emptyDraftsIllustration}>
@@ -2317,7 +2400,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           </View>
           <Text style={styles.emptyDraftsTitle}>କୌଣସି ଡ୍ରାଫ୍ଟ ନାହିଁ</Text>
           <Text style={styles.emptyDraftsSubtitle}>
-            ଆପଣଙ୍କର କୌଣସି ସେଭ୍ ହୋଇଥିବା ରେକର୍ଡିଂ ନାହିଁ
+            {selectedClass && textVersion
+              ? `Class ${selectedClass} (ଭାଷା ${textVersion}) ପାଇଁ କୌଣସି ଡ୍ରାଫ୍ଟ ନାହିଁ`
+              : 'ଆପଣଙ୍କର କୌଣସି ସେଭ୍ ହୋଇଥିବା ରେକର୍ଡିଂ ନାହିଁ'}
           </Text>
         </View>
       );
@@ -2330,11 +2415,11 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
             <MaterialIcons name="folder-special" size={24} color="red" />
             <Text style={styles.draftsTitle}>ସେଭ୍ ହୋଇଥିବା ଡ୍ରାଫ୍ଟଗୁଡିକ</Text>
           </View>
-          <Text style={styles.draftsCount}>{draftRecordings.length}</Text>
+          <Text style={styles.draftsCount}>{filteredDrafts.length}</Text>
         </View>
 
         <FlatList
-          data={draftRecordings.slice(0, 3)}
+          data={filteredDrafts.slice(0, 3)}
           keyExtractor={item => item.id}
           scrollEnabled={false}
           renderItem={({ item }) => (
@@ -2353,8 +2438,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                       {item.studentName}
                     </Text>
                     <Text style={styles.draftDetails}>
-                      ରୋଲ୍: {item.rollNumber} • ଶ୍ରେଣୀ: {item.class} •{' '}
-                      {item.duration || 0} ସେକେଣ୍ଡ
+                      ରୋଲ୍: {item.rollNumber} • {item.duration || 0} ସେକେଣ୍ଡ
                     </Text>
                   </View>
                 </View>
@@ -2377,6 +2461,12 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                 <Text style={styles.draftDate}>
                   {new Date(item.recordingDate).toLocaleDateString()}
                 </Text>
+                <View style={styles.draftVersionBadge}>
+                  <MaterialIcons name="book" size={12} color="#666" />
+                  <Text style={styles.draftVersionText}>
+                    ଭାଷା {item.textVersion}
+                  </Text>
+                </View>
                 <TouchableOpacity
                   style={styles.draftQuickAction}
                   onPress={() => uploadDraftToServer(item)}
@@ -2397,13 +2487,13 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
           )}
         />
 
-        {draftRecordings.length > 3 && (
+        {filteredDrafts.length > 3 && (
           <TouchableOpacity
             style={styles.viewAllDraftsButton}
             onPress={() => setShowDraftsModal(true)}
           >
             <Text style={styles.viewAllDraftsText}>
-              ସମସ୍ତ {draftRecordings.length} ଟି ଡ୍ରାଫ୍ଟ ଦେଖନ୍ତୁ
+              ସମସ୍ତ {filteredDrafts.length} ଟି ଡ୍ରାଫ୍ଟ ଦେଖନ୍ତୁ
             </Text>
             <MaterialIcons name="chevron-right" size={20} color="#4a6fa5" />
           </TouchableOpacity>
@@ -2423,7 +2513,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
               ସମସ୍ତ ଡ୍ରାଫ୍ଟ ଅପଲୋଡ୍ କରନ୍ତୁ
             </Text>
             <Text style={styles.batchUploadSubtitle}>
-              {draftRecordings.length} ଟି ରେକର୍ଡିଂ ସର୍ଭରକୁ ପଠାନ୍ତୁ
+              {filteredDrafts.length} ଟି ରେକର୍ଡିଂ ସର୍ଭରକୁ ପଠାନ୍ତୁ
             </Text>
           </View>
           {batchUploading ? (
@@ -4474,6 +4564,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  draftVersionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    gap: 4,
+  },
+  draftVersionText: {
+    fontSize: 10,
+    color: '#1976D2',
+    fontWeight: '500',
+  },
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -4538,7 +4642,7 @@ const styles = StyleSheet.create({
     borderColor: '#ff0000ff',
     borderWidth: 2,
     borderLeftWidth: 6,
-    borderLeftColor: '##ff0000ff',
+    borderLeftColor: '#ff0000ff',
     borderStyle: 'dashed',
   },
   pendingStudentCard: {
