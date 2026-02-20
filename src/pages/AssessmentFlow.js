@@ -1053,6 +1053,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
     });
   };
 
+  const playbackIntervalRef = useRef(null);
+
+  // Also update the cleanup in useEffect (around line 300-310)
   useEffect(() => {
     const initializeAudio = async () => {
       try {
@@ -1086,6 +1089,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       }
       if (timerRef.current) {
         clearInterval(timerRef.current);
+      }
+      if (playbackIntervalRef.current) {
+        clearInterval(playbackIntervalRef.current);
       }
     };
   }, []);
@@ -1160,6 +1166,15 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
     }
   };
 
+  const generateUniqueDraftFileName = (studentId, rollNumber, class_) => {
+    const timestamp = Date.now();
+    const randomId = Math.random().toString(36).substring(7);
+    return `draft_${
+      studentId || rollNumber
+    }_${class_}_${timestamp}_${randomId}.wav`;
+  };
+
+  // Update the stopRecording function to return the file path
   const stopRecording = async () => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -1169,6 +1184,16 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
     try {
       setIsLoading(true);
       const audioFile = await AudioRecord.stop();
+
+      // Generate a unique filename for this recording
+      const uniqueFileName = generateUniqueDraftFileName(
+        selectedStudentId,
+        selectedStudentRoll,
+        selectedClass,
+      );
+
+      // You might want to copy/rename the file to a permanent location with unique name
+      // For now, we'll use the returned path
       setFilePath(audioFile);
       setRecording(false);
       setAudioSavedLocally(true);
@@ -1465,13 +1490,13 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       const newDraft = {
         id: draftId,
         fileName: draftData.fileName || generateUniqueFileName(),
-        filePath: draftData.filePath,
+        filePath: draftData.filePath, // This should now be unique for each draft
         localFilePath: draftData.filePath,
         studentId: draftData.studentId,
         studentName: draftData.studentName || `Student ${draftData.rollNumber}`,
         rollNumber: draftData.rollNumber,
         class: draftData.class,
-        grade: draftData.class, // Add grade field
+        grade: draftData.class,
         blockCode: draftData.blockCode,
         block: draftData.block,
         districtCode: draftData.districtCode,
@@ -1490,7 +1515,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         fileSize: draftData.fileSize || '0 KB',
         uploadAttempts: 0,
         lastUploadAttempt: null,
-        gender: matchedStudent?.gender || gender, // Store gender with the draft
+        gender: matchedStudent?.gender || gender,
       };
 
       const existingDraftsString = await AsyncStorage.getItem(
@@ -1501,6 +1526,7 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
       if (existingDraftsString) {
         existingDrafts = JSON.parse(existingDraftsString);
 
+        // Check if there's an existing draft for this student and text
         const existingDraftIndex = existingDrafts.findIndex(
           draft =>
             draft.studentId === newDraft.studentId &&
@@ -1509,6 +1535,24 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         );
 
         if (existingDraftIndex !== -1) {
+          // If updating existing draft, we need to handle the old file
+          const oldDraft = existingDrafts[existingDraftIndex];
+
+          // Optionally delete the old audio file
+          try {
+            const fs = require('react-native-fs');
+            if (oldDraft.filePath && oldDraft.filePath !== newDraft.filePath) {
+              const oldFileExists = await fs.exists(oldDraft.filePath);
+              if (oldFileExists) {
+                await fs.unlink(oldDraft.filePath);
+                console.log('Deleted old draft file:', oldDraft.filePath);
+              }
+            }
+          } catch (deleteError) {
+            console.log('Could not delete old draft file:', deleteError);
+          }
+
+          // Update existing draft
           existingDrafts[existingDraftIndex] = {
             ...existingDrafts[existingDraftIndex],
             ...newDraft,
@@ -1530,21 +1574,20 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
       );
 
-      // Set all drafts
       setDraftRecordings(sortedDrafts);
 
-      // Get filtered drafts based on current selections
       const filteredDrafts = getFilteredDrafts(sortedDrafts);
-
-      // Update drafted students based on filtered drafts
       const draftRollNumbers = filteredDrafts
         .filter(draft => draft.class === selectedClass)
         .map(draft => draft.rollNumber?.toString());
       setDraftedStudents(draftRollNumbers);
 
-      console.log('Draft saved successfully:', newDraft.id);
-      console.log('Filtered drafts after save:', filteredDrafts.length);
-
+      console.log(
+        'Draft saved successfully:',
+        newDraft.id,
+        'with file:',
+        newDraft.filePath,
+      );
       return newDraft;
     } catch (error) {
       console.error('Error saving draft:', error);
@@ -1602,9 +1645,33 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
         console.log('Could not get file size:', error);
       }
 
+      // Generate a unique filename for this draft
+      const uniqueFileName = generateUniqueFileName(true);
+
+      // If you want to copy the file to a permanent location with unique name
+      // You can use react-native-fs to copy the file
+      let permanentFilePath = filePath;
+      try {
+        const fs = require('react-native-fs');
+        const documentsPath = fs.DocumentDirectoryPath;
+        const newFilePath = `${documentsPath}/${uniqueFileName}`;
+
+        // Check if file exists at the new path
+        const fileExists = await fs.exists(newFilePath);
+        if (!fileExists) {
+          // Copy the file to a permanent location
+          await fs.copyFile(filePath, newFilePath);
+          permanentFilePath = newFilePath;
+          console.log('File copied to permanent location:', newFilePath);
+        }
+      } catch (copyError) {
+        console.log('Could not copy file, using original path:', copyError);
+        // If copy fails, continue with original file path
+      }
+
       const draftData = {
-        fileName: generateUniqueFileName(),
-        filePath: filePath,
+        fileName: uniqueFileName,
+        filePath: permanentFilePath, // Use the permanent path if copied, otherwise original
         studentId: selectedStudentId,
         studentName: selectedStudent,
         rollNumber: selectedStudentRoll,
@@ -1734,49 +1801,181 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
 
   const playDraftAudio = async draft => {
     try {
+      // Stop any currently playing audio first
       if (soundObj) {
-        soundObj.release();
+        await new Promise(resolve => {
+          soundObj.stop(() => {
+            soundObj.release();
+            resolve();
+          });
+        });
         setSoundObj(null);
-        setPlayingDraftId(null);
+        setPlaying(false);
       }
 
-      if (!draft.filePath) {
-        Alert.alert('Error', 'Audio file not found');
+      // Clear any existing playback interval
+      if (playbackIntervalRef.current) {
+        clearInterval(playbackIntervalRef.current);
+        playbackIntervalRef.current = null;
+      }
+
+      setPlayingDraftId(null);
+      setPlaybackPosition(0);
+
+      if (!draft || !draft.filePath) {
+        console.error('No file path for draft:', draft);
+        Alert.alert('Error', 'Audio file not found for this draft');
         return;
       }
 
+      // Verify file exists before trying to play
+      try {
+        const fs = require('react-native-fs');
+        const fileExists = await fs.exists(draft.filePath);
+        if (!fileExists) {
+          console.error('Audio file does not exist:', draft.filePath);
+          Alert.alert(
+            'Error',
+            'Audio file not found. It may have been deleted or moved.',
+          );
+          return;
+        }
+        console.log('File exists at path:', draft.filePath);
+      } catch (fsError) {
+        console.log('Could not verify file existence:', fsError);
+      }
+
+      // Ensure proper file URI format
       let audioUri = draft.filePath;
-      if (!audioUri.startsWith('file://')) {
+      if (
+        !audioUri.startsWith('file://') &&
+        !audioUri.startsWith('content://')
+      ) {
         audioUri = `file://${audioUri}`;
       }
 
+      console.log(
+        'Playing audio for student:',
+        draft.studentName,
+        'from path:',
+        audioUri,
+      );
+
+      // Set the playing draft ID
       setPlayingDraftId(draft.id);
+
+      // Create new sound instance for this specific draft
       const newSound = new Sound(audioUri, '', error => {
         if (error) {
-          console.error('Failed to load draft audio:', error);
-          Alert.alert('Playback Error', 'Failed to load draft audio file');
+          console.error('Failed to load audio:', error, 'for path:', audioUri);
+          Alert.alert('Playback Error', 'Failed to load audio file');
           setPlayingDraftId(null);
+          setPlaying(false);
           return;
         }
 
+        // Get duration and set it
+        const duration = newSound.getDuration();
+        setAudioDuration(duration);
+
+        console.log(
+          'Audio loaded successfully for student:',
+          draft.studentName,
+          'duration:',
+          duration,
+        );
+
+        // Start playback
         newSound.play(success => {
           if (success) {
-            console.log('Draft audio finished playing');
+            console.log(
+              'Audio finished playing for student:',
+              draft.studentName,
+            );
           } else {
-            console.log('Draft audio playback failed');
-            Alert.alert('Playback Error', 'Failed to play draft audio');
+            console.log(
+              'Audio playback failed for student:',
+              draft.studentName,
+            );
           }
+
+          // Clean up after playback
           newSound.release();
           setPlayingDraftId(null);
-          setSoundObj(null);
+          setPlaying(false);
+          setPlaybackPosition(0);
+
+          if (playbackIntervalRef.current) {
+            clearInterval(playbackIntervalRef.current);
+            playbackIntervalRef.current = null;
+          }
+
+          // Only clear soundObj if it's this sound
+          setSoundObj(prevSound => (prevSound === newSound ? null : prevSound));
         });
+
+        setPlaying(true);
       });
 
       setSoundObj(newSound);
+
+      // Monitor playback position
+      playbackIntervalRef.current = setInterval(() => {
+        if (newSound && newSound.isLoaded() && playingDraftId === draft.id) {
+          newSound.getCurrentTime(seconds => {
+            setPlaybackPosition(seconds);
+          });
+        }
+      }, 500);
     } catch (error) {
       console.error('Error in playDraftAudio:', error);
-      Alert.alert('Error', 'Failed to play draft audio');
+      Alert.alert('Error', 'Failed to play audio');
       setPlayingDraftId(null);
+      setPlaying(false);
+    }
+  };
+
+  const pauseDraftAudio = () => {
+    try {
+      if (soundObj && playing) {
+        soundObj.pause();
+        setPlaying(false);
+        setCanStopAudio(true);
+        setIsPaused(true);
+
+        // Save the current playback position
+        if (soundObj.isLoaded()) {
+          soundObj.getCurrentTime(seconds => {
+            setPlaybackPosition(seconds);
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error in pauseDraftAudio:', error);
+    }
+  };
+
+  // Add stop function for drafts
+  const stopDraftAudio = () => {
+    try {
+      if (soundObj) {
+        soundObj.stop(() => {
+          soundObj.release();
+          setSoundObj(null);
+          setPlaying(false);
+          setCanStopAudio(false);
+          setIsPaused(false);
+          setPlaybackPosition(0);
+          setPlayingDraftId(null);
+
+          if (playbackIntervalRef.current) {
+            clearInterval(playbackIntervalRef.current);
+            playbackIntervalRef.current = null;
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error in stopDraftAudio:', error);
     }
   };
 
@@ -2244,12 +2443,51 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                         playingDraftId === selectedDraftForDetail.id &&
                           styles.playingAudioButton,
                       ]}
-                      onPress={() => playDraftAudio(selectedDraftForDetail)}
+                      onPress={() => {
+                        if (
+                          playingDraftId === selectedDraftForDetail.id &&
+                          playing
+                        ) {
+                          // Pause
+                          if (soundObj) {
+                            soundObj.pause();
+                            setPlaying(false);
+                            setIsPaused(true);
+                            if (playbackIntervalRef.current) {
+                              clearInterval(playbackIntervalRef.current);
+                              playbackIntervalRef.current = null;
+                            }
+                          }
+                        } else if (
+                          playingDraftId === selectedDraftForDetail.id &&
+                          isPaused
+                        ) {
+                          // Resume
+                          if (soundObj) {
+                            soundObj.play();
+                            setPlaying(true);
+                            setIsPaused(false);
+
+                            playbackIntervalRef.current = setInterval(() => {
+                              if (soundObj && soundObj.isLoaded()) {
+                                soundObj.getCurrentTime(seconds => {
+                                  setPlaybackPosition(seconds);
+                                });
+                              }
+                            }, 500);
+                          }
+                        } else {
+                          // Play new
+                          playDraftAudio(selectedDraftForDetail);
+                        }
+                      }}
                     >
                       <MaterialIcons
                         name={
                           playingDraftId === selectedDraftForDetail.id
-                            ? 'pause'
+                            ? playing
+                              ? 'pause'
+                              : 'play-arrow'
                             : 'play-arrow'
                         }
                         size={24}
@@ -2257,7 +2495,9 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                       />
                       <Text style={styles.playAudioButtonText}>
                         {playingDraftId === selectedDraftForDetail.id
-                          ? 'ବିରତ'
+                          ? playing
+                            ? 'ବିରତ'
+                            : 'ଆଗକୁ ଚାଲନ୍ତୁ'
                           : 'ଶୁଣନ୍ତୁ'}
                       </Text>
                     </TouchableOpacity>
@@ -2469,14 +2709,54 @@ const AssessmentFlow = ({ navigation, user: propUser }) => {
                 </View>
                 <TouchableOpacity
                   style={styles.draftQuickAction}
-                  onPress={() => uploadDraftToServer(item)}
+                  onPress={() => {
+                    if (playingDraftId === item.id && playing) {
+                      // Pause if currently playing this draft
+                      if (soundObj) {
+                        soundObj.pause();
+                        setPlaying(false);
+                        setIsPaused(true);
+                        if (playbackIntervalRef.current) {
+                          clearInterval(playbackIntervalRef.current);
+                          playbackIntervalRef.current = null;
+                        }
+                      }
+                    } else if (playingDraftId === item.id && isPaused) {
+                      // Resume if paused
+                      if (soundObj) {
+                        soundObj.play();
+                        setPlaying(true);
+                        setIsPaused(false);
+
+                        // Restart position monitoring
+                        playbackIntervalRef.current = setInterval(() => {
+                          if (soundObj && soundObj.isLoaded()) {
+                            soundObj.getCurrentTime(seconds => {
+                              setPlaybackPosition(seconds);
+                            });
+                          }
+                        }, 500);
+                      }
+                    } else {
+                      // Play new audio
+                      playDraftAudio(item);
+                    }
+                  }}
                   disabled={uploadingDraftId === item.id}
                 >
                   {uploadingDraftId === item.id ? (
                     <ActivityIndicator size="small" color="#2196F3" />
+                  ) : playingDraftId === item.id && playing ? (
+                    <MaterialIcons name="pause" size={16} color="#FF9800" />
+                  ) : playingDraftId === item.id && isPaused ? (
+                    <MaterialIcons
+                      name="play-arrow"
+                      size={16}
+                      color="#2196F3"
+                    />
                   ) : (
                     <MaterialIcons
-                      name="cloud-upload"
+                      name="play-arrow"
                       size={16}
                       color="#2196F3"
                     />
