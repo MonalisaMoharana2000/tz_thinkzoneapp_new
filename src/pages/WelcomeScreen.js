@@ -100,7 +100,7 @@ const WelcomeScreen = ({ navigation, route, authContext }) => {
               color="#13538a"
             />
           </View>
-          <Text style={styles.title}>ଓଡ଼ିଆ ପଢିବା ମୂଲ୍ୟାୟନ</Text>
+          <Text style={styles.title}>ଭାଷା ପଠନ ମୂଲ୍ୟାୟନ</Text>
           <Text style={styles.subtitle}>ଶିକ୍ଷାର ମୂଲ୍ୟ ବଢ଼ାଇବା</Text>
         </View>
 
@@ -138,7 +138,9 @@ const WelcomeScreen = ({ navigation, route, authContext }) => {
                 </View>
               </View>
               <View style={styles.cardText}>
-                <Text style={styles.cardTitle}>ପାଠ୍ୟ ପ୍ରତିରୂପ ମୂଲ୍ୟାୟନ</Text>
+                <Text style={styles.cardTitle}>
+                  Optical Character Recognition
+                </Text>
                 <Text style={styles.cardDescription}>
                   ଛବି ଉଠାଇ ପଢିବା କ୍ଷମତା ପରୀକ୍ଷା କରନ୍ତୁ
                 </Text>
